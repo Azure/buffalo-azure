@@ -16,15 +16,13 @@ const EventTypeWildcard = "all"
 // App extends the functionality of a normal buffalo.App with actions
 // specific to Event Grid. Specifically, it seeks to allow quick and easy
 // register a Group of actions for processing and reasoning.
-type App struct {
-	buffalo.App
-}
+type App buffalo.App
 
 // Subscriber creates a group of mappings (*buffalo.App) between
 // a Subscriber interface implementation and the appropriate REST
 // paths.
 func (a *App) Subscriber(p string, s Subscriber) *buffalo.App {
-	g := a.Group(p)
+	g := (*buffalo.App)(a).Group(p)
 	p = "/"
 
 	g.POST(p, s.Receive)
