@@ -1,6 +1,6 @@
 # Buffalo-Azure
 
-[![GoDoc](https://godoc.org/github.com/Azure/buffalo-azure?status.svg)](https://godoc.org/github.com/Azure/buffalo-azure)
+[![GoDoc](https://godoc.org/github.com/Azure/buffalo-azure?status.svg)](https://godoc.org/github.com/Azure/buffalo-azure) [![Build Status](https://travis-ci.org/Azure/buffalo-azure.svg?branch=master)](https://travis-ci.org/Azure/buffalo-azure)
 
 This is an experiment by the Azure Developer Experience team to expand our usefulness to Go developers beyond generating SDKs. 
 **This is not officially supported** by the Azure DevEx team, Azure, or Microsoft.
