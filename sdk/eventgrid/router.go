@@ -27,7 +27,6 @@ func (a *App) Subscriber(p string, s Subscriber) *buffalo.App {
 
 	g.POST(p, s.Receive)
 	if a.Env == "development" {
-		g.GET(p, s.List)
 		g.GET(path.Join(p, "new"), s.New)
 	}
 
