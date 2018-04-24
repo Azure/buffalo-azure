@@ -1,6 +1,7 @@
 package eventgrid
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -13,14 +14,20 @@ import (
 // External documentation on Event Grid Events can be found here:
 // https://docs.microsoft.com/en-us/azure/event-grid/event-schema
 type Event struct {
-	ID              string      `json:"id"`
-	Topic           string      `json:"topic"`
-	Subject         string      `json:"subject"`
-	Data            interface{} `json:"data"`
-	EventType       string      `json:"eventType"`
-	EventTime       time.Time   `json:"eventTime"`
-	MetadataVersion string      `json:"metadataVersion"`
-	DataVersion     string      `json:"dataVersion"`
+	ID              string          `json:"id"`
+	Topic           string          `json:"topic"`
+	Subject         string          `json:"subject"`
+	Data            json.RawMessage `json:"data"`
+	EventType       string          `json:"eventType"`
+	EventTime       time.Time       `json:"eventTime"`
+	MetadataVersion string          `json:"metadataVersion"`
+	DataVersion     string          `json:"dataVersion"`
+}
+
+// UnmarshalData attempts to read the value associated with the "data" property
+// into the value pointed to by v.
+func (e Event) UnmarshalData(v interface{}) error {
+	return json.Unmarshal(e.Data, v)
 }
 
 // EventHandler extends the definition of buffalo.Handler to include

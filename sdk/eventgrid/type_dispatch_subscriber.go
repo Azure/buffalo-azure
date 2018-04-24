@@ -1,7 +1,10 @@
 package eventgrid
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/gobuffalo/buffalo"
@@ -22,24 +25,42 @@ func NewTypeDispatchSubscriber(parent Subscriber) (created *TypeDispatchSubscrib
 		Subscriber: parent,
 		bindings:   make(map[string]EventHandler),
 	}
+
+	created.Bind("Microsoft.EventGrid.SubscriptionValidationEvent", ReceiveSubscriptionValidationRequest)
+
 	return
 }
 
-// Bind ties together an EventType string
+// Bind ties together an Event Type identifier string and a function that knows how to handle it.
 func (s *TypeDispatchSubscriber) Bind(eventType string, handler EventHandler) *TypeDispatchSubscriber {
+	s.bindings[s.NormalizeEventType(eventType)] = handler
+	return s
+}
+
+// Unbind removes the mapping between an Event Type string and the associated EventHandler, if
+// such a mapping exists.
+func (s *TypeDispatchSubscriber) Unbind(eventType string) *TypeDispatchSubscriber {
+	delete(s.bindings, s.NormalizeEventType(eventType))
+	return s
+}
+
+// NormalizeEventType applies casing rules
+func (s TypeDispatchSubscriber) NormalizeEventType(eventType string) string {
 	if s.normalizeTypeCase {
 		eventType = strings.ToUpper(eventType)
 	}
-	s.bindings[eventType] = handler
-	return s
+	return eventType
 }
 
 // Receive is `buffalo.Handler` which is called when
 func (s TypeDispatchSubscriber) Receive(c buffalo.Context) (err error) {
-	var event Event
+	if contentType := c.Request().Header.Get("Content-Type"); contentType != "application.json" {
+		return c.Error(http.StatusBadRequest, fmt.Errorf("unsupported Content-Type %q", contentType))
+	}
 
-	err = c.Bind(&event)
-	if err != nil {
+	var event Event
+	err = json.NewDecoder(c.Request().Body).Decode(&event)
+	if err != nil && err != io.EOF {
 		return
 	}
 
