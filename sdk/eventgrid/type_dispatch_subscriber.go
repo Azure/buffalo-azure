@@ -54,7 +54,7 @@ func (s TypeDispatchSubscriber) NormalizeEventType(eventType string) string {
 
 // Receive is `buffalo.Handler` which is called when
 func (s TypeDispatchSubscriber) Receive(c buffalo.Context) (err error) {
-	if contentType := c.Request().Header.Get("Content-Type"); contentType != "application.json" {
+	if contentType := c.Request().Header.Get("Content-Type"); contentType != "application/json" {
 		return c.Error(http.StatusBadRequest, fmt.Errorf("unsupported Content-Type %q", contentType))
 	}
 
