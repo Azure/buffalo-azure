@@ -37,19 +37,6 @@ https://azure.microsoft.com/en-us/services/event-grid/`,
 	},
 }
 
-// Flavor indicates which set of templates and HTTP Muxes to use
-// to host your Event Grid application.
-type Flavor string
-
-// All of the well-known HTTP Mux implementations that are either supported
-// or plan to be supported by the eventgrid generator.
-const (
-	FlavorBuffalo Flavor = "buffalo"
-	FlavorStdlib  Flavor = "stdlib"
-	FlavorGorilla Flavor = "gorilla"
-	FlavorEcho    Flavor = "echo"
-)
-
 func init() {
 	rootCmd.AddCommand(eventgridCmd)
 
@@ -62,6 +49,4 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// eventgridCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
-	eventgridCmd.PersistentFlags().StringP("flavor", "f", string(FlavorBuffalo), "The HTTP framework that should be used for receiving and dispatching Event Grid events.")
 }
