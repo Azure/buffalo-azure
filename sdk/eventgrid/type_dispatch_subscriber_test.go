@@ -65,6 +65,7 @@ func ExampleTypeDispatchSubscriber_Receive() {
 		fmt.Println(err)
 		return
 	}
+	req.Header.Add("Content-Type", "application/json")
 
 	ctx := NewMockContext(req)
 
