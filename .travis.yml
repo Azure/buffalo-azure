@@ -1,0 +1,16 @@
+language: go
+
+go:
+  - "1.9"
+  - 1.10.x
+  - master
+
+matrix:
+  allow_failures:
+    - go: master
+
+script:
+  - go build ./...
+  - go test ./...
+  - test -z "$(go fmt ./... | tee /dev/stderr)"
+  - go vet ./...
