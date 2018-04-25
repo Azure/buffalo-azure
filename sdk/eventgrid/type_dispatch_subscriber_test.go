@@ -38,7 +38,7 @@ func ExampleTypeDispatchSubscriber_Receive() {
 		return
 	})
 
-	req, err := http.NewRequest(http.MethodPost, "localhost", bytes.NewReader([]byte(`{
+	req, err := http.NewRequest(http.MethodPost, "localhost", bytes.NewReader([]byte(`[{
 	"topic": "/subscriptions/{subscription-id}/resourceGroups/Storage/providers/Microsoft.Storage/storageAccounts/xstoretestaccount",
 	"subject": "/blobServices/default/containers/oc2d2817345i200097container/blobs/oc2d2817345i20002296blob",
 	"eventType": "Microsoft.Storage.BlobCreated",
@@ -60,7 +60,7 @@ func ExampleTypeDispatchSubscriber_Receive() {
 	},
 	"dataVersion": "",
 	"metadataVersion": "1"
-}`)))
+}]`)))
 	if err != nil {
 		fmt.Println(err)
 		return
