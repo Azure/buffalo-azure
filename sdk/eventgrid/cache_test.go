@@ -24,7 +24,7 @@ func ExampleCache() {
 	myCache.Clear()
 	fmt.Println(myCache.List())
 	// Output:
-	// [{   [] Microsoft.Storage.BlobCreated 0001-01-01 00:00:00 +0000 UTC  } {   [] Contoso.Buffalo.CacheProd 0001-01-01 00:00:00 +0000 UTC  }]
+	// [{   [] Microsoft.Storage.BlobCreated   } {   [] Contoso.Buffalo.CacheProd   }]
 	// []
 }
 

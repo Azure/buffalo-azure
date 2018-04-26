@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/gobuffalo/buffalo"
 )
@@ -19,7 +18,7 @@ type Event struct {
 	Subject         string          `json:"subject"`
 	Data            json.RawMessage `json:"data"`
 	EventType       string          `json:"eventType"`
-	EventTime       time.Time       `json:"eventTime"`
+	EventTime       string          `json:"eventTime"`
 	MetadataVersion string          `json:"metadataVersion"`
 	DataVersion     string          `json:"dataVersion"`
 }
