@@ -19,6 +19,8 @@ var successStatusCodes = map[int]struct{}{
 	http.StatusCreated: struct{}{},
 }
 
+// Context extends `buffalo.Context` to ease communication between a Request Handler
+// and an Event Grid Topic.
 type Context struct {
 	buffalo.Context
 	*ResponseWriter
@@ -50,6 +52,8 @@ type ResponseWriter struct {
 	header      http.Header
 }
 
+// NewResponseWriter initializes a ResponseWriter which will merge the responses of
+// several Event Grid Handlers.
 func NewResponseWriter() *ResponseWriter {
 	return &ResponseWriter{
 		failureSeen: false,
@@ -81,6 +85,9 @@ func (w *ResponseWriter) HasFailure() bool {
 	return w.failureSeen
 }
 
+// SetFailure indicates that a Status Code outside of ones an Event Grid Topic
+// accepts as meaning not to retry was present in one of Handlers writing to this
+// ResponseWriter.
 func (w *ResponseWriter) SetFailure() {
 	w.Lock()
 	defer w.Unlock()
