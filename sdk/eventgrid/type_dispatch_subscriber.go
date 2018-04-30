@@ -1,10 +1,11 @@
 package eventgrid
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
+	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gobuffalo/buffalo"
 )
@@ -52,23 +53,35 @@ func (s TypeDispatchSubscriber) NormalizeEventType(eventType string) string {
 }
 
 // Receive is `buffalo.Handler` which is called when
-func (s TypeDispatchSubscriber) Receive(c buffalo.Context) (err error) {
+func (s TypeDispatchSubscriber) Receive(c buffalo.Context) error {
 	var events []Event
-	err = json.NewDecoder(c.Request().Body).Decode(&events)
-	if err != nil && err != io.EOF {
-		return
-	}
-	for _, event := range events {
-		if handler, ok := s.Handler(event.EventType); ok {
-			err = handler(c, event)
-		} else if handler, ok = s.Handler(EventTypeWildcard); ok {
-			err = handler(c, event)
-		} else {
-			err = fmt.Errorf("no Handler found for type %q", event.EventType)
-		}
+
+	if err := c.Bind(&events); err != nil {
+		return c.Error(http.StatusBadRequest, err)
 	}
 
-	return
+	ctx := NewContext(c)
+	var wg sync.WaitGroup
+	for _, event := range events {
+		wg.Add(1)
+		go func() {
+			if handler, ok := s.Handler(event.EventType); ok {
+				handler(ctx, event)
+			} else if handler, ok = s.Handler(EventTypeWildcard); ok {
+				handler(ctx, event)
+			} else {
+				ctx.Error(http.StatusBadRequest, fmt.Errorf("no Handler found for type %q", event.EventType))
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	if ctx.HasFailure() {
+		return c.Error(http.StatusInternalServerError, errors.New("at least one handler failed to process an event in this batch"))
+	}
+	c.Response().WriteHeader(http.StatusOK)
+	return nil
 }
 
 // Handler gets the EventHandler meant to process a particular Event Grid Event Type.

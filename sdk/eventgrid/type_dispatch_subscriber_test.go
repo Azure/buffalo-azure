@@ -2,33 +2,12 @@ package eventgrid_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/Azure/buffalo-azure/sdk/eventgrid"
 	"github.com/gobuffalo/buffalo"
 )
-
-type MockContext struct {
-	buffalo.Context
-	request *http.Request
-}
-
-func NewMockContext(req *http.Request) *MockContext {
-	return &MockContext{
-		Context: &buffalo.DefaultContext{},
-		request: req,
-	}
-}
-
-func (c MockContext) Request() *http.Request {
-	return c.request
-}
-
-func (c MockContext) Bind(payload interface{}) error {
-	return json.NewDecoder(c.Request().Body).Decode(payload)
-}
 
 func ExampleTypeDispatchSubscriber_Receive() {
 	var mySubscriber eventgrid.Subscriber
