@@ -64,7 +64,7 @@ func (s TypeDispatchSubscriber) Receive(c buffalo.Context) error {
 	var wg sync.WaitGroup
 	for _, event := range events {
 		wg.Add(1)
-		go func() {
+		go func(event Event) {
 			if handler, ok := s.Handler(event.EventType); ok {
 				handler(ctx, event)
 			} else if handler, ok = s.Handler(EventTypeWildcard); ok {
@@ -73,7 +73,7 @@ func (s TypeDispatchSubscriber) Receive(c buffalo.Context) error {
 				ctx.Error(http.StatusBadRequest, fmt.Errorf("no Handler found for type %q", event.EventType))
 			}
 			wg.Done()
-		}()
+		}(event)
 	}
 	wg.Wait()
 
