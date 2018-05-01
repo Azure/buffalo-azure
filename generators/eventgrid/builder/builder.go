@@ -186,10 +186,5 @@ func readFiles(ctx context.Context, root string, output chan<- file) error {
 		return nil
 	}
 
-	retChan := make(chan error, 1)
-	go func() {
-		retChan <- filepath.Walk(root, addFile)
-	}()
-
-	return <-retChan
+	return filepath.Walk(root, addFile)
 }
