@@ -19,6 +19,24 @@ type file struct {
 }
 
 func main() {
+	exitStatus := 1
+	defer func() {
+		os.Exit(exitStatus)
+	}()
+	var err error
+
+	var output io.Writer = os.Stdout
+	for i, arg := range os.Args {
+		if arg == "-o" {
+			output, err = os.Create(os.Args[i+1])
+			os.Args = append(os.Args[:i], os.Args[i+2])
+			if err != nil {
+				return
+			}
+			break
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	discoveredFiles := make(chan file)
@@ -28,9 +46,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Unable to create a temporary file to stage the results.")
 		return
 	}
+	defer os.Remove(stagingHandle.Name())
+
+	fmt.Fprintln(stagingHandle, `package eventgrid
+
+var staticTemplates = make(TemplateCache)
+
+func init(){`)
 
 	writeErr := make(chan error)
-
 	go func(result chan<- error) {
 		result <- writeFileEntry(ctx, stagingHandle, discoveredFiles)
 		close(result)
@@ -57,19 +81,21 @@ func main() {
 
 		select {
 		case err, ok := <-readErr:
-			if ok && err != context.Canceled {
+			if ok && err != context.Canceled && err != nil {
 				fmt.Fprintln(os.Stderr, "unable to read files: ", err)
 				cancel()
 			}
 			readDone = true
 		case err, ok := <-writeErr:
-			if ok && err != context.Canceled {
+			if ok && err != context.Canceled && err != nil {
 				fmt.Fprintln(os.Stderr, "unable to write files: ", err)
 				cancel()
 			}
 			writeDone = true
 		}
 	}
+
+	fmt.Fprintln(stagingHandle, "}")
 
 	stagingHandle.Close()
 
@@ -79,11 +105,13 @@ func main() {
 		return
 	}
 
-	_, err = io.Copy(os.Stdout, stagingReader)
+	_, err = io.Copy(output, stagingReader)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "unable to copy staging file to Stdout: ", err)
 		return
 	}
+
+	exitStatus = 0
 }
 
 func writeFileEntry(ctx context.Context, output io.Writer, input <-chan file) error {
@@ -101,7 +129,7 @@ func writeFileEntry(ctx context.Context, output io.Writer, input <-chan file) er
 				return errors.New("cannot process an empty file")
 			}
 
-			fmt.Fprintf(lineItem, "fileContents[%q] = []byte{ ", strings.Replace(entry.path, `\`, "/", -1))
+			fmt.Fprintf(lineItem, "\tstaticTemplates[%q] = []byte{ ", strings.Replace(entry.path, `\`, "/", -1))
 
 			const terminator = ", "
 			for _, item := range entry.contents {

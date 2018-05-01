@@ -1,14 +1,25 @@
 package eventgrid
 
 import (
-	"go/parser"
-	"go/token"
+	"io/ioutil"
+	"os"
 )
 
-type Generator struct{}
+//go:generate go run ./builder/builder.go -o ./static_templates.go ./templates
+
+type Generator struct {
+}
 
 func Run() error {
-	files := &token.FileSet{}
+	name, err := ioutil.TempDir("", "buffalo-azure_templates")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(name)
 
-	parser.ParseDir(files)
+	err = staticTemplates.Rehydrate(name)
+	if err != nil {
+		return err
+	}
+	return nil
 }
