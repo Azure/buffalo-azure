@@ -25,9 +25,6 @@ func NewTypeDispatchSubscriber(parent Subscriber) (created *TypeDispatchSubscrib
 		Subscriber: parent,
 		bindings:   make(map[string]EventHandler),
 	}
-
-	created.Bind("Microsoft.EventGrid.SubscriptionValidationEvent", ReceiveSubscriptionValidationRequest)
-
 	return
 }
 

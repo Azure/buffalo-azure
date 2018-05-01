@@ -8,6 +8,8 @@ import (
 	"github.com/gobuffalo/uuid"
 )
 
+const SubscriptionValidationTypeIdentifier = "Microsoft.EventGrid.SubscriptionValidationEvent"
+
 // SubscriptionValidationRequest allows for easy unmarshaling of the first
 // event sent by an Event Grid Topic.
 type SubscriptionValidationRequest struct {
