@@ -14,9 +14,21 @@ type TemplateCache map[string][]byte
 // specified.
 func (c TemplateCache) Rehydrate(root string) error {
 	for filename, contents := range c {
-		if err := ioutil.WriteFile(path.Join(root, filename), contents, os.ModePerm); err != nil {
+		desiredPath := path.Join(root, filename)
+		if err := os.MkdirAll(path.Dir(desiredPath), os.ModePerm); err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(desiredPath, contents, os.ModePerm); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// Clear removes all entries from a TemplateCache, so that they can be collected by the
+// garbage collector.
+func (c TemplateCache) Clear() {
+	for k := range c {
+		delete(c, k)
+	}
 }

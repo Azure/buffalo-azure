@@ -1,6 +1,8 @@
 package eventgrid
 
 import (
+	"go/parser"
+	"go/token"
 	"io/ioutil"
 	"os"
 )
@@ -19,11 +21,20 @@ func (g *Generator) Run() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(name)
+	defer func() {
+		go os.RemoveAll(name)
+	}()
 
 	err = staticTemplates.Rehydrate(name)
 	if err != nil {
 		return err
 	}
+
+	var templateFiles token.FileSet
+	_, err = parser.ParseDir(&templateFiles, name, nil, parser.ParseComments)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
