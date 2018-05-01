@@ -38,6 +38,7 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	discoveredFiles := make(chan file)
 
