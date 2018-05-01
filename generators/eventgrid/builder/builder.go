@@ -137,7 +137,7 @@ func writeFileEntry(ctx context.Context, output io.Writer, input <-chan file) er
 			}
 			lineItem.Truncate(lineItem.Len() - len(terminator))
 
-			fmt.Fprint(lineItem, "}\n")
+			fmt.Fprintln(lineItem, "}")
 
 			if _, err := io.Copy(output, lineItem); err != nil {
 				return err
