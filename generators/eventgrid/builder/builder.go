@@ -56,7 +56,7 @@ package eventgrid
 
 var staticTemplates = make(TemplateCache)
 
-func init(){`)
+func init() {`)
 
 	writeErr := make(chan error)
 	go func(result chan<- error) {
@@ -99,7 +99,7 @@ func init(){`)
 		}
 	}
 
-	fmt.Fprintln(stagingHandle, "}")
+	fmt.Fprint(stagingHandle, "}\n")
 
 	stagingHandle.Close()
 
@@ -133,7 +133,7 @@ func writeFileEntry(ctx context.Context, output io.Writer, input <-chan file) er
 				return errors.New("cannot process an empty file")
 			}
 
-			fmt.Fprintf(lineItem, "\tstaticTemplates[%q] = []byte{ ", strings.Replace(entry.path, `\`, "/", -1))
+			fmt.Fprintf(lineItem, "\tstaticTemplates[%q] = []byte{", strings.Replace(entry.path, `\`, "/", -1))
 
 			const terminator = ", "
 			for _, item := range entry.contents {

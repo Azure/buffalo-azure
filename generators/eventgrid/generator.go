@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-//go:generate go run ./builder/builder.go -o ./static_templates.go ./templates && go fmt ./...
+//go:generate go run ./builder/builder.go -o ./static_templates.go ./templates
 
 // Generator will parse an existing `buffalo.App` and add the relevant code
 // to make that application be ready for being subscribed to an Event Grid Topic.
