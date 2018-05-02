@@ -23,7 +23,7 @@ func SubscriptionValidationMiddleware(next buffalo.Handler) buffalo.Handler {
 	return func(c buffalo.Context) error {
 		if typeHeader := c.Request().Header.Get("Aeg-Event-Type"); strings.EqualFold(typeHeader, "SubscriptionValidation") {
 			var events []Event
-			if err := c.Bind(events); err != nil {
+			if err := c.Bind(&events); err != nil {
 				return c.Error(http.StatusBadRequest, err)
 			}
 
@@ -50,7 +50,9 @@ func ReceiveSubscriptionValidationRequest(c buffalo.Context, e Event) error {
 		ValidationCode uuid.UUID `json:"validationResponse,omitempty"`
 	}
 
-	c.Logger().Info("received validation request from: ", c.Request().RemoteAddr)
+	if logger := c.Logger(); logger != nil {
+		logger.Info("received validation request from: ", c.Request().RemoteAddr)
+	}
 
 	enc := json.NewEncoder(c.Response())
 
