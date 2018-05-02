@@ -2,7 +2,9 @@ package eventgrid
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gobuffalo/buffalo"
 	"github.com/gobuffalo/uuid"
@@ -14,7 +16,29 @@ type SubscriptionValidationRequest struct {
 	ValidationCode uuid.UUID `json:"validationCode,omitempty"`
 }
 
-// ReceiveSubscriptionValidationRequest will
+// SubscriptionValidationMiddleware provides a `buffalo.Handler` which will triage all incoming requests
+// to either submit it for event processing, or echo back the response the server expects to validate a
+// subscription.
+func SubscriptionValidationMiddleware(next buffalo.Handler) buffalo.Handler {
+	return func(c buffalo.Context) error {
+		if typeHeader := c.Request().Header.Get("Aeg-Event-Type"); strings.EqualFold(typeHeader, "SubscriptionValidation") {
+			var events []Event
+			if err := c.Bind(events); err != nil {
+				return c.Error(http.StatusBadRequest, err)
+			}
+
+			if numEvents := len(events); numEvents != 1 {
+				return c.Error(http.StatusBadRequest, fmt.Errorf("expected exactly 1 event, got %d", numEvents))
+			}
+
+			return ReceiveSubscriptionValidationRequest(c, events[0])
+		}
+		return next(c)
+	}
+}
+
+// ReceiveSubscriptionValidationRequest will echo the ValidateCode sent in the request
+// back to the Event Grid Topic seeking subscription validation.
 func ReceiveSubscriptionValidationRequest(c buffalo.Context, e Event) error {
 	var svr SubscriptionValidationRequest
 	err := json.Unmarshal(e.Data, &svr)
