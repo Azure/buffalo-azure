@@ -8,6 +8,14 @@ import (
 	"github.com/gobuffalo/buffalo"
 )
 
+// MaxPayloadSize is the largest number of bytes permitted in the body of
+// a request sent to an Event Grid Topic.
+const MaxPayloadSize = 1024 * 1024
+
+// MaxEventSize is the largest number of bytes permitted for an individual
+// Event Grid Event.
+const MaxEventSize = 64 * 1024
+
 // Event allows for easy processing of Event Grid Events.
 //
 // External documentation on Event Grid Events can be found here:
