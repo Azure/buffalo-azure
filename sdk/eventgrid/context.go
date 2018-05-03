@@ -59,6 +59,9 @@ func (c *Context) ResponseHasFailure() bool {
 
 func (c *Context) Error(status int, err error) error {
 	c.resp.WriteHeader(status)
+	if logger := c.Logger(); logger != nil {
+		logger.Error(err)
+	}
 	return errors.WithStack(err)
 }
 
