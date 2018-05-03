@@ -8,10 +8,10 @@ import (
 	"io"
 	"net/http"
 	"sync"
-
-	"github.com/gobuffalo/buffalo"
+	"testing"
 
 	"github.com/Azure/buffalo-azure/sdk/eventgrid"
+	"github.com/gobuffalo/buffalo"
 )
 
 func ExampleContext() {
@@ -38,9 +38,18 @@ func ExampleContext() {
 	go succeed(ctx)
 	wg.Wait()
 
-	fmt.Println(ctx.HasFailure())
+	fmt.Println(ctx.ResponseHasFailure())
 
 	// Output: true
+}
+
+func TestContext_ResponseWriter_Mask(t *testing.T) {
+	var outer buffalo.Context = &buffalo.DefaultContext{}
+	inner := eventgrid.NewContext(outer)
+
+	if inner.Response() == outer.Response() {
+		t.Fail()
+	}
 }
 
 type MockContext struct {

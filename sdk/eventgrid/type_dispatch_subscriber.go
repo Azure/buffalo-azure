@@ -49,7 +49,14 @@ func (s TypeDispatchSubscriber) NormalizeEventType(eventType string) string {
 	return eventType
 }
 
-// Receive is `buffalo.Handler` which is called when
+// Receive is a `buffalo.Handler` which inspects a request sent from an Event Grid Topic,
+// and triages each event in the batch by the "eventType" property in the Event metadata.
+// If handler for an Event's type is present, the event will be passed to that Handler.
+// Should no Handler be specifically bound to that Event Type string, a default Handler
+// is called.
+// When no Handler is found, even a default, an HTTP 400 Status Code is returned.
+// Each Event is handed to exactly one Handler. If even one of those handlers returns a
+// response code that is not an HTTP 200 OR 201, this handler will return an HTTP 500.
 func (s TypeDispatchSubscriber) Receive(c buffalo.Context) error {
 	var events []Event
 
@@ -74,7 +81,7 @@ func (s TypeDispatchSubscriber) Receive(c buffalo.Context) error {
 	}
 	wg.Wait()
 
-	if ctx.HasFailure() {
+	if ctx.ResponseHasFailure() {
 		return c.Error(http.StatusInternalServerError, errors.New("at least one handler failed to process an event in this batch"))
 	}
 	c.Response().WriteHeader(http.StatusOK)

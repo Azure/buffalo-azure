@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/gobuffalo/buffalo"
+	"github.com/pkg/errors"
 )
 
 // SuccessStatusCodes returns an unordered list of HTTP Status Codes
@@ -23,26 +24,32 @@ var successStatusCodes = map[int]struct{}{
 // and an Event Grid Topic.
 type Context struct {
 	buffalo.Context
-	*ResponseWriter
+	resp *ResponseWriter
 }
 
 // NewContext initializes a new `eventgrid.Context`.
 func NewContext(parent buffalo.Context) *Context {
 	return &Context{
-		Context:        parent,
-		ResponseWriter: NewResponseWriter(),
+		Context: parent,
+		resp:    NewResponseWriter(),
 	}
 }
 
 // Response fulfills Buffalo's requirement to allow folks to write a response,
 // but it actually just throws away anything you write to it.
 func (c *Context) Response() http.ResponseWriter {
-	return c.ResponseWriter
+	return c.resp
+}
+
+// ResponseHasFailure indicates whether or not any Status Codes not indicating
+// success to an Event Grid Topic were published to this Context's `ResponseWriter`.
+func (c *Context) ResponseHasFailure() bool {
+	return c.resp.HasFailure()
 }
 
 func (c *Context) Error(status int, err error) error {
-	c.WriteHeader(status)
-	return c.Context.Error(status, err)
+	c.resp.WriteHeader(status)
+	return errors.WithStack(err)
 }
 
 // ResponseWriter looks like an `http.ResponseWriter`, but
