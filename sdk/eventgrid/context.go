@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/gobuffalo/buffalo"
+	"github.com/gobuffalo/buffalo/render"
 	"github.com/pkg/errors"
 )
 
@@ -24,15 +25,24 @@ var successStatusCodes = map[int]struct{}{
 // and an Event Grid Topic.
 type Context struct {
 	buffalo.Context
-	resp *ResponseWriter
+	resp  *ResponseWriter
+	data  map[string]interface{}
+	flash buffalo.Flash
 }
 
 // NewContext initializes a new `eventgrid.Context`.
-func NewContext(parent buffalo.Context) *Context {
-	return &Context{
+func NewContext(parent buffalo.Context) (created *Context) {
+	created = &Context{
 		Context: parent,
 		resp:    NewResponseWriter(),
+		data:    make(map[string]interface{}, len(parent.Data())),
 	}
+
+	for k, v := range parent.Data() {
+		created.data[k] = v
+	}
+
+	return
 }
 
 // Response fulfills Buffalo's requirement to allow folks to write a response,
@@ -50,6 +60,24 @@ func (c *Context) ResponseHasFailure() bool {
 func (c *Context) Error(status int, err error) error {
 	c.resp.WriteHeader(status)
 	return errors.WithStack(err)
+}
+
+// Render discards the body that is populated by the renderer, but takes the status
+// into consideration for how to communicate success or failue to an Event Grid Topic.
+func (c *Context) Render(status int, r render.Renderer) error {
+	c.resp.WriteHeader(status)
+	return r.Render(c.Response(), c.Data())
+}
+
+// Flash fetches an unused instance of Flash.
+func (c *Context) Flash() *buffalo.Flash {
+	return &c.flash
+}
+
+// Redirect informs the Event Grid Topic that an Event was unable to be handled.
+func (c *Context) Redirect(status int, url string, args ...interface{}) error {
+	c.resp.WriteHeader(status)
+	return nil
 }
 
 // ResponseWriter looks like an `http.ResponseWriter`, but
