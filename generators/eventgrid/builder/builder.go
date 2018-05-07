@@ -157,11 +157,6 @@ func readFiles(ctx context.Context, root string, output chan<- file) error {
 			return outerError
 		}
 
-		// Skip files that aren't Go source code.
-		if !strings.HasSuffix(info.Name(), ".go") {
-			return nil
-		}
-
 		handle, err := os.Open(path)
 		if err != nil {
 			return err

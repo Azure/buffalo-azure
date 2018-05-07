@@ -22,8 +22,6 @@ func NewMyEventGridTopicSubscriber(parent eventgrid.Subscriber) (created *MyEven
 		Subscriber: dispatcher,
 	}
 
-	dispatcher.Bind("MyEventGridTopic.MyType", created.ReceiveMyType)
-
 	return
 }
 
