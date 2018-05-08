@@ -1,0 +1,43 @@
+package actions
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/Azure/buffalo-azure/sdk/eventgrid"
+	"github.com/gobuffalo/buffalo"
+)
+
+// My{{$.name.Camel}}Subscriber gathers responds to all Requests sent to a particular endpoint.
+type {{$.name.Camel}}Subscriber struct {
+	eventgrid.Subscriber
+}
+
+// New{{$.name.Camel}}Subscriber instantiates {{$.name.Camel}}Subscriber for use in a `buffalo.App`.
+func New{{$.name.Camel}}Subscriber(parent eventgrid.Subscriber) (created *{{$.name.Camel}}Subscriber) {
+	dispatcher := eventgrid.NewTypeDispatchSubscriber(parent)
+
+	created = &{{$.name.Camel}}Subscriber{
+		Subscriber: dispatcher,
+	}
+
+{{ range $t := .types}}
+	dispatcher.Bind("{{$t.Identifier}}", created.{{$t.Name.Camel}})
+{{end}}
+
+	return
+}
+
+{{ range $t := .types }}
+// Receive{{$t.Name.Camel}} will respond to an `eventgrid.Event` carrying a serialized `{{$t.Name.Camel}}` as its payload.
+func (s *My{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context, e eventgrid.Event) error {
+	var payload {{$t.PackageSpecifier}}.{{$t.Name.Camel}}
+	if err := json.Unmarshal(e.Data, &payload); err != nil {
+		return c.Error(http.StatusBadRequest, errors.New("unable to unmarshal request data"))
+	}
+
+	// Replace the code below with your logic
+	return nil
+}
+{{end}}
