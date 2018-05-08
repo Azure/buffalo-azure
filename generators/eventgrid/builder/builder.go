@@ -151,10 +151,29 @@ func writeFileEntry(ctx context.Context, output io.Writer, input <-chan file) er
 	}
 }
 
+var acceptedFileExtensions = []string{".tmpl", ".go"}
+
 func readFiles(ctx context.Context, root string, output chan<- file) error {
 	addFile := func(path string, info os.FileInfo, outerError error) error {
 		if outerError != nil {
 			return outerError
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		found := false
+
+		for _, ext := range acceptedFileExtensions {
+			if strings.EqualFold(filepath.Ext(info.Name()), ext) {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return nil
 		}
 
 		handle, err := os.Open(path)

@@ -1,64 +1,46 @@
 package eventgrid
 
 import (
-	"bytes"
-	"fmt"
-	"go/printer"
-	"go/token"
+	"io/ioutil"
+	"os"
+	"path"
+	"reflect"
 	"testing"
 
+	"github.com/gobuffalo/buffalo/meta"
 	"github.com/markbates/inflect"
+
+	"github.com/Azure/buffalo-azure/sdk/eventgrid"
 )
 
-func TestGenerator_getSubscriberConstructor(t *testing.T) {
-	subject := &Generator{}
+func TestGenerator_Run(t *testing.T) {
+	subject := Generator{}
 
-	file, err := subject.loadSubscriberAST()
+	loc, err := ioutil.TempDir("", "buffalo-azure_eventgrid_test")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-
-	const fakeName = "testName1"
-
-	decl, err := subject.getSubscriberConstructor(file, inflect.Name(fakeName))
+	err = os.MkdirAll(path.Join(loc, "actions"), os.ModePerm)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	defer os.RemoveAll(loc)
 
-	if want := fmt.Sprintf("New%sSubscriber", inflect.Name(fakeName).Camel()); decl.Name.Name != want {
-		t.Logf("got: %s want: %s", decl.Name.Name, want)
-		t.Fail()
-		return
+	t.Log("Output Location: ", loc)
+
+	fakeApp := meta.App{
+		Root:       loc,
+		ActionsPkg: "actions",
 	}
 
-	buffer := bytes.NewBuffer([]byte{})
-	empty := token.NewFileSet()
-	printer.Fprint(buffer, empty, decl)
+	faux := eventgrid.SubscriptionValidationRequest{}
 
-	t.Logf("Constructor as mutated:\n%s", buffer.String())
-}
-
-func TestGenerator_getBindingCall(t *testing.T) {
-	g := &Generator{}
-
-	const ident = "Microsoft.BuffaloAzure.FakeType"
-	const name = "FakeType"
-
-	result, err := g.getBindingCall(nil, ident, name)
-	if err != nil {
+	if err = subject.Run(fakeApp, inflect.Name("ingress"), map[string]reflect.Type{
+		"Microsoft.EventGrid.SubscriptionValidation": reflect.TypeOf(faux),
+	}); err != nil {
 		t.Error(err)
 		return
-	}
-
-	var empty token.FileSet
-	output := bytes.NewBuffer([]byte{})
-	printer.Fprint(output, &empty, result)
-
-	const want = `dispatcher.Bind("` + ident + `", created.ReceiveFakeType)`
-	if got := output.String(); got != want {
-		t.Logf("\ngot:\n\t%s\nwant:\n\t%s", got, want)
-		t.Fail()
 	}
 }
