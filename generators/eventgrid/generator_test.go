@@ -7,10 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gobuffalo/buffalo/meta"
-	"github.com/markbates/inflect"
-
 	"github.com/Azure/buffalo-azure/sdk/eventgrid"
+	"github.com/gobuffalo/buffalo/meta"
 )
 
 func TestGenerator_Run(t *testing.T) {
@@ -32,12 +30,12 @@ func TestGenerator_Run(t *testing.T) {
 
 	fakeApp := meta.App{
 		Root:       loc,
-		ActionsPkg: "actions",
+		ActionsPkg: "github.com/marstr/musicvotes/actions",
 	}
 
 	faux := eventgrid.SubscriptionValidationRequest{}
 
-	if err = subject.Run(fakeApp, inflect.Name("ingress"), map[string]reflect.Type{
+	if err = subject.Run(fakeApp, "ingress", map[string]reflect.Type{
 		"Microsoft.EventGrid.SubscriptionValidation": reflect.TypeOf(faux),
 	}); err != nil {
 		t.Error(err)
