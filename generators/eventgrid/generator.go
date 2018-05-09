@@ -20,7 +20,8 @@ type Generator struct{}
 
 // Run executes the Generator's main purpose, of extending a Buffalo application
 // to listen for Event Grid Events.
-func (eg *Generator) Run(app meta.App, name inflect.Name, types map[string]reflect.Type) error {
+func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Type) error {
+	iName := inflect.Name(name)
 	type TypeMapping struct {
 		Identifier string
 		inflect.Name
@@ -41,13 +42,13 @@ func (eg *Generator) Run(app meta.App, name inflect.Name, types map[string]refle
 		return flatTypes[i].Identifier < flatTypes[j].Identifier
 	})
 
-	eventgridFilepath := filepath.Join(app.ActionsPkg, fmt.Sprintf("%s.go", name.File()))
+	eventgridFilepath := filepath.Join(path.Base(app.ActionsPkg), fmt.Sprintf("%s.go", iName.File()))
 	g := makr.New()
 	defer g.Fmt(app.Root)
 
 	g.Add(makr.NewFile(eventgridFilepath, string(staticTemplates["templates/actions/eventgrid_name.go.tmpl"])))
 	d := make(makr.Data)
-	d["name"] = name
+	d["name"] = iName
 	d["types"] = flatTypes
 
 	return g.Run(app.Root, d)

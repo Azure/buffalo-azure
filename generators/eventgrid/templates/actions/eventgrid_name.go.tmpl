@@ -31,7 +31,7 @@ func New{{$.name.Camel}}Subscriber(parent eventgrid.Subscriber) (created *{{$.na
 
 {{ range $t := .types }}
 // Receive{{$t.Name.Camel}} will respond to an `eventgrid.Event` carrying a serialized `{{$t.Name.Camel}}` as its payload.
-func (s *My{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context, e eventgrid.Event) error {
+func (s *{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context, e eventgrid.Event) error {
 	var payload {{$t.PackageSpecifier}}.{{$t.Name.Camel}}
 	if err := json.Unmarshal(e.Data, &payload); err != nil {
 		return c.Error(http.StatusBadRequest, errors.New("unable to unmarshal request data"))
