@@ -48,6 +48,7 @@
   packages = [
     ".",
     "binding",
+    "generators",
     "meta",
     "plugins",
     "render",
@@ -500,6 +501,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "5e381d6a14961fe0a7ef213b04b694598741ad168e2312588dbbc40bba08b097"
+  inputs-digest = "85504ef7e8f639d7ddd845691cae82e3633145ad6d68a2211a616cf45fe11f1f"
   solver-name = "gps-cdcl"
   solver-version = 1

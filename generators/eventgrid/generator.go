@@ -10,6 +10,7 @@ import (
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/makr"
 	"github.com/markbates/inflect"
+	"github.com/gobuffalo/buffalo/generators"
 )
 
 //go:generate go run ./builder/builder.go -o ./static_templates.go ./templates
@@ -47,6 +48,15 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 	defer g.Fmt(app.Root)
 
 	g.Add(makr.NewFile(eventgridFilepath, string(staticTemplates["templates/actions/eventgrid_name.go.tmpl"])))
+	g.Add(&makr.Func{
+		Should: func(_ makr.Data) bool { return true },
+		Runner: func(root string, data makr.Data) error {
+			subName := data["name"].(inflect.Name)
+			registrationExpr := fmt.Sprintf("eventgrid.RegisterSubscriber(app, %s, New%sSubscriber(&eventgrid.BaseSubscriber{}))", subName.Lower(), subName.Camel())
+			return generators.AddInsideAppBlock(registrationExpr)
+		},
+	})
+
 	d := make(makr.Data)
 	d["name"] = iName
 	d["types"] = flatTypes
