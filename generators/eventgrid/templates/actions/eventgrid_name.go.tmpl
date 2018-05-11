@@ -23,7 +23,7 @@ func New{{$.name.Camel}}Subscriber(parent eventgrid.Subscriber) (created *{{$.na
 	}
 
 {{ range $t := .types}}
-	dispatcher.Bind("{{$t.Identifier}}", created.{{$t.Name.Camel}})
+	dispatcher.Bind("{{$t.Identifier}}", created.Receive{{$t.Name.Camel}})
 {{end}}
 
 	return
