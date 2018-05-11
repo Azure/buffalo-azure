@@ -36,7 +36,7 @@ func TestGenerator_Run(t *testing.T) {
 	defer os.RemoveAll(loc)
 	t.Log("Output Location: ", loc)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Minute)
 	defer cancel()
 
 	var outHandle, errHandle io.Writer

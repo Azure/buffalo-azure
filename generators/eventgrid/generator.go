@@ -52,7 +52,7 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 		Should: func(_ makr.Data) bool { return true },
 		Runner: func(root string, data makr.Data) error {
 			subName := data["name"].(inflect.Name)
-			registrationExpr := fmt.Sprintf("eventgrid.RegisterSubscriber(app, %s, New%sSubscriber(&eventgrid.BaseSubscriber{}))", subName.Lower(), subName.Camel())
+			registrationExpr := fmt.Sprintf(`eventgrid.RegisterSubscriber(app, "/%s", New%sSubscriber(&eventgrid.BaseSubscriber{}))`, subName.Lower(), subName.Camel())
 			return generators.AddInsideAppBlock(registrationExpr)
 		},
 	})
