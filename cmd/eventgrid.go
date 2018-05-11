@@ -38,7 +38,9 @@ var eventgridCmd = &cobra.Command{
 	Use:     "eventgrid <name> [<EventTypeString>:<identifier>...]",
 	Aliases: []string{"eg"},
 	Short:   "Generates new action(s) for handling Azure Event Grid events.",
-	Long: `More documenation can be found at:
+	Long: `Add actions for reacting to Event Grid Events to your Buffalo application.
+
+More documentation about Event Grid can be found at:
 https://azure.microsoft.com/en-us/services/event-grid/`,
 	Run: func(cmd *cobra.Command, args []string) {
 
@@ -60,8 +62,6 @@ https://azure.microsoft.com/en-us/services/event-grid/`,
 			fmt.Fprintln(os.Stderr, "unable to create subscriber file: ", err)
 			os.Exit(1)
 		}
-
-		fmt.Println("eventgrid called")
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
