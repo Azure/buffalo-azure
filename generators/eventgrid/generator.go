@@ -7,10 +7,10 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/gobuffalo/buffalo/generators"
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/makr"
 	"github.com/markbates/inflect"
-	"github.com/gobuffalo/buffalo/generators"
 )
 
 //go:generate go run ./builder/builder.go -o ./static_templates.go ./templates
