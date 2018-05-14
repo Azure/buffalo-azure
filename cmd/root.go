@@ -34,7 +34,7 @@ var cfgFile string
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "buffalo azure",
-	Short: "Tools for deploying Buffalo to Azure",
+	Short: "Tools for integrating your Buffalo application with Azure.",
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	//	Run: func(cmd *cobra.Command, args []string) { },
