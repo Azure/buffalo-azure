@@ -22,35 +22,37 @@ package cmd
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
 
-// deployCmd represents the deploy command
-var deployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+var version string
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+// versionCmd represents the version command
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version information about the Buffalo-Azure plugin.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("deploy called")
+		if version == "" {
+			version = "unknown version"
+		}
+		fmt.Println("Buffalo-Azure Version: ", version)
+		fmt.Println("Go version: ", runtime.Version())
 	},
+	Args: cobra.NoArgs,
 }
 
 func init() {
-	azureCmd.AddCommand(deployCmd)
+	azureCmd.AddCommand(versionCmd)
 
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:
-	// deployCmd.PersistentFlags().String("foo", "", "A help for foo")
+	// versionCmd.PersistentFlags().String("foo", "", "A help for foo")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	// deployCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// versionCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

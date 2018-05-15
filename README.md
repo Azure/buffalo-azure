@@ -7,8 +7,32 @@ This is an experiment by the Azure Developer Experience team to expand our usefu
 
 By extending [gobuffalo](https://gobuffalo.io), we seek to empower rapid web developers to deploy to Azure easily, and even generate code that will integrate well with Azure services.
 
+## Installation
 
-# Contributing
+This is an extension, so before you install Buffalo-Azure, make sure you've already [installed Buffalo](https://gobuffalo.io/en/docs/installation).
+
+### Build from Source
+#### go get
+The easiest, albeit least stable, way to get started is to use `go get`.
+``` bash
+go get -u github.com/Azure/buffalo-azure
+```
+
+#### git clone
+
+> [`dep`](https://github.com/golang/dep) is a pre-requisite for these installation instructions.
+
+Building yourself isn't too arduous, and enables a reproducible build stamped with the git revision you're using.
+
+``` bash
+mkdir -p $GOPATH/src/github.com/Azure/buffalo-azure
+cd $GOPATH/src/github.com/Azure/buffalo-azure
+git clone https://github.com/Azure/buffalo-azure.git .
+dep ensure
+go install -ldflags "-X github.com/Azure/buffalo-azure/cmd.version=$(git rev-parse HEAD)"
+``` 
+
+## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us

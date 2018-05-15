@@ -21,24 +21,21 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
 // azureCmd represents the azure command
 var azureCmd = &cobra.Command{
 	Use:   "azure",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Exposes tools for more easily using Azure services.",
+	Long: `Updates your application to get started with Azure services.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("azure called")
-	},
+The most common types of operations are:
+  - Adding configuration to host your application in Azure.
+  - Updating routes in your application to do handshakes with Azure services.`,
+	// Run: func(cmd *cobra.Command, args []string) {
+	//	fmt.Println("azure called")
+	// },
 }
 
 func init() {
