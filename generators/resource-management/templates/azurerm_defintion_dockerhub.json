@@ -1,0 +1,62 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2014-04-01-preview/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "imageName" : {
+      "type": "String"
+    },
+    "name": {
+      "type": "String"
+    }
+  },
+  "variables": {
+    "hostingPlanName": "[concat('hostingPlan-', parameters('name'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/sites",
+      "name": "[parameters('name')]",
+      "apiVersion": "2016-03-01",
+      "location": "[resourceGroup().location]",
+      "tags": {
+        "[concat('hidden-related:', subscription().id, '/resourcegroups/', resourceGroup().name, '/providers/Microsoft.Web/serverfarms/', variables('hostingPlanName'))]": "empty"
+      },
+      "properties": {
+        "name": "[parameters('name')]",
+        "siteConfig": {
+          "appSettings": [
+            {
+              "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
+              "value": "false"
+            }
+          ],
+          "appCommandLine": "",
+          "linuxFxVersion": "[concat('DOCKER|', parameters('imageName'))]"
+        },
+        "serverFarmId": "[concat(subscription().id, '/resourcegroups/', resourceGroup().name, '/providers/Microsoft.Web/serverfarms/', variables('hostingPlanName'))]",
+        "hostingEnvironment": ""
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', variables('hostingPlanName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "sku": {
+        "Tier": "Basic",
+        "Name": "B1"
+      },
+      "kind": "linux",
+      "name": "[variables('hostingPlanName')]",
+      "apiVersion": "2016-09-01",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "name": "[variables('hostingPlanName')]",
+        "workerSizeId": "0",
+        "reserved": true,
+        "numberOfWorkers": "1",
+        "hostingEnvironment": ""
+      }
+    }
+  ]
+}
