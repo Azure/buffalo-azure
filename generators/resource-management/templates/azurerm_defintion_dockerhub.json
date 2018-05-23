@@ -3,14 +3,32 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "imageName" : {
-      "type": "String"
+      "type": "String",
+      "defaultValue": "appsvc/sample-hello-world:latest"
     },
     "name": {
-      "type": "String"
+      "type": "String",
+      "defaultValue": "[concat('site', uniqueString(resourceGroup().id, deployment().name))]"
+    },
+    "database": {
+      "type": "String",
+      "defaultValue": "none",
+      "allowedValues": [
+        "none",
+        "postgre"
+      ]
+    },
+    "databaseAdministratorLogin": {
+      "type": "String",
+      "defaultValue": "[concat('admin', parameters('name'))]"
+    },
+    "databaseAdministratorLoginPassword": {
+      "type": "SecureString"
     }
   },
   "variables": {
-    "hostingPlanName": "[concat('hostingPlan-', parameters('name'))]"
+    "hostingPlanName": "[concat('hostingPlan-', parameters('name'))]",
+    "postgreName": "[concat(parameters('name'), '-postgre')]"
   },
   "resources": [
     {
@@ -37,7 +55,8 @@
         "hostingEnvironment": ""
       },
       "dependsOn": [
-        "[concat('Microsoft.Web/serverfarms/', variables('hostingPlanName'))]"
+        "[variables('hostingPlanName')]",
+        "[variables('postgreName')]"
       ]
     },
     {
@@ -56,6 +75,26 @@
         "reserved": true,
         "numberOfWorkers": "1",
         "hostingEnvironment": ""
+      }
+    },
+    {
+      "condition":"[equals(parameters('database'), 'postgre')]",
+      "type": "Microsoft.DBforPostgreSQL/servers",
+      "sku": {
+        "name": "B_Gen5_1",
+        "family": "Gen5",
+        "capacity": "",
+        "size": "5120",
+        "tier":"Basic"
+      },
+      "kind":"",
+      "name":"[variables('postgreName')]",
+      "apiVersion": "2017-12-01-preview",
+      "location":"[resourceGroup().location]",
+      "properties": {
+        "version": "9.6",
+        "administratorLogin": "[parameters('databaseAdministratorLogin')]",
+        "administratorLoginPassword": "[parameters('databaseAdministratorLoginPassword')]"
       }
     }
   ]
