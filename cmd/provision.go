@@ -21,36 +21,332 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"time"
 
+	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2017-05-10/resources"
+	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/go-autorest/autorest/adal"
+	"github.com/Azure/go-autorest/autorest/azure"
+	"github.com/marstr/guid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"net/http"
+	"net/url"
+	"strings"
 )
 
 var provisionConfig = viper.New()
 
 const (
-	ResoureGroupName = "resource-group"
+	ResoureGroupName       = "resource-group"
 	ResourceGroupShorthand = "g"
+	resourceGroupUsage = ""
+)
+
+// These constants define a parameter which allows control over the Azure Region that should be used when creating a
+// resource group. If the specified resource group already exists, its location is used and this parameter is discarded.
+const (
+	LocationName = "location"
+	LocationShorthand = "l"
+	LocationDefault = "centralus"
+	locationUsage = "The Azure Region that should be used when creating a resource group."
+)
+
+// These constants define a parameter that allows control of the type of database to be provisioned. This is largely an
+// escape hatch to use if Buffalo-Azure is incorrectly identifying the flavor of database to use after reading your
+// application.
+//
+// Supported flavors:
+//  - None
+//  - Postgres
+const (
+	DatabaseName      = "database"
+	DatabaseShorthand = "d"
+	databaseUsage     = "The type of database to provision."
+)
+
+// These constants define a parameter which allows control over the particular Azure cloud which should be used for
+// deployment.
+// Some examples of Azure environments by name include:
+// - AzurePublicCloud (most popular)
+// - AzureChinaCloud
+// - AzureGermanCloud
+// - AzureUSGovernmentCloud
+const (
+	EnvironmentName      = "environment"
+	EnvironmentShorthand = "e"
+	EnvironmentDefault   = "AzurePublicCloud"
+	environmentUsage     = "The Azure environment that will be targeted for deployment."
+)
+
+var environment azure.Environment
+
+// These constants define a parameter which will control which container image is used to
+const (
+	// ImageName is the full parameter name of the argument that controls which container image will be used
+	// when the Web App for Containers is provisioned.
+	ImageName = "image"
+
+	// ImageShorthand is the abbreviated means of using ImageName.
+	ImageShorthand = "i"
+
+	// ImageDefault is the container image that will be deployed if you didn't specify one.
+	ImageDefault = "appsvc/sample-hello-world:latest"
+
+	imageUsage = "The container image that defines this project."
+)
+
+// These constants define a parameter that allows control of the Azure Resource Management (ARM) template that should be
+// used to provision infrastructure. This tool is not designed to deploy arbitrary ARM templates, rather this parameter
+// is intended to give you the flexibility to lock to a known version of the gobuffalo quick start template, or tweak
+// that template a little for your own usage.
+//
+// To prevent live-site incidents, a local copy of the default template is stored in this executable. If this parameter
+// is NOT specified, this program will attempt to acquire the remote version of the default-template. Should that fail,
+// the locally cached copy will be used. If the parameter is specified, this program will attempt to acquire the remote
+// version. If that operation fails, the program does NOT use the cached template, and terminates with a non-zero exit
+// status.
+const (
+	// TemplateName is the full parameter name of the argument providing a URL where the ARM template to bue used can
+	// be found.
+	TemplateName = "rm-template"
+
+	// TemplateShorthand is the abbreviated means of using TemplateName.
+	TemplateShorthand = "t"
+
+	// TemplateDefault
+	TemplateDefault = "https://invalidtemplate.gobuffalo.io"
+	templateUsage   = "The Azure Resource Management template used to "
+)
+
+// These constants define a parameter that
+const (
+	SubscriptionName      = "subscription"
+	SubscriptionShorthand = "s"
+	SubscriptionUsage     = "The ID (in UUID format) of the Azure subscription which should host the provisioned resources."
+)
+
+// These constants define a parameter which allows specification of a Service Principal for authentication.
+// This should always be used in tandem with `--client-secret`.
+//
+// To learn more about getting started with Service Principals you can look here:
+// - Using the Azure CLI 2.0: [https://docs.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli](https://docs.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli?toc=%2Fazure%2Fazure-resource-manager%2Ftoc.json&view=azure-cli-latest)
+// - Using Azure PowerShell: [https://docs.microsoft.com/en-us/azure/azure-resource-manager/resource-group-authenticate-service-principal](https://docs.microsoft.com/en-us/azure/azure-resource-manager/resource-group-authenticate-service-principal?view=azure-cli-latest)
+// - Using the Azure Portal: [https://docs.microsoft.com/en-us/azure/azure-resource-manager/resource-group-create-service-principal-portal](https://docs.microsoft.com/en-us/azure/azure-resource-manager/resource-group-create-service-principal-portal?view=azure-cli-latest)
+const (
+	ClientIDName  = "client-id"
+	clientIDUsage = "The Application ID of the App Registration being used to authenticate."
+)
+
+// These constants define a parameter which allows spe
+const (
+	ClientSecretName  = "client-secret"
+	clientSecretUsage = ""
+)
+
+// These constants define a parameter which provides the organization that should be used during authentication.
+// Providing the tenant-id explicitly can help speed up execution, but by default this program will traverse all tenants
+// available to the authenticated identity (service principal or user), and find the one containing the subscription
+// provided. This traversal may involve several HTTP requests, and is therefore somewhat latent.
+const (
+	TenantIDName = "tenant-id"
+	tenantUsage  = "The ID (in form of a UUID) of the organization that the identity being used belongs to. "
+)
+
+
+const (
+	DeviceAuthName  = "use-device-auth"
+	deviceAuthUsage = ""
 )
 
 const (
-	ImageName = "image"
-	ImageShorthand = "i"
-	ImageDefault = "appsvc/sample-hello-world:latest"
-	ImageUsage = "The container image that defines this project."
+	VerboseName      = "verbose"
+	VerboseShortname = "v"
+	verboseUsage     = "Print out status information as this program executes."
 )
+
+var status *log.Logger
 
 // provisionCmd represents the provision command
 var provisionCmd = &cobra.Command{
+	Aliases: []string{"p"},
 	Use:   "provision",
-	Short: "Create the most basic infrastructure necessary to run a buffalo app on Azure.",
+	Short: "Create the infrastructure necessary to run a buffalo app on Azure.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("provision called")
+		exitStatus := 1
+		defer func(){
+			os.Exit(exitStatus)
+		}()
+
+		// Authenticate and setup clients
+		subscriptionID := provisionConfig.GetString(SubscriptionName)
+		tenantID := provisionConfig.GetString(TenantIDName)
+		clientID := provisionConfig.GetString(ClientIDName)
+		clientSecret := provisionConfig.GetString(ClientSecretName)
+		status.Print("subscription selected: ", subscriptionID)
+		status.Print("tenant selected: ", tenantID)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+		defer cancel()
+
+		auth, err := getAuthorizer(ctx, clientID, clientSecret, tenantID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "unable to authenticate: ", err)
+			return
+		}
+
+		groups := resources.NewGroupsClient(subscriptionID)
+		groups.Authorizer = auth
+		userAgentBuilder := bytes.NewBufferString("buffalo-azure")
+		if version != "" {
+			userAgentBuilder.WriteRune('/')
+			userAgentBuilder.WriteString(version)
+		}
+		groups.AddToUserAgent(userAgentBuilder.String())
+
+		// Assert the presence of the specified Resource Group
+		rgName := provisionConfig.GetString(ResoureGroupName)
+		created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unable to fetch or create resource group %s: %v\n", rgName, err)
+			return
+		}
+		if created {
+			status.Println("created resource group: ", rgName)
+		} else {
+			status.Println("found resource group: ", rgName)
+		}
+
+		// Provision the necessary assets.
+		deployments := resources.NewDeploymentsClient(subscriptionID)
+		deployments.Authorizer = auth
+
+
+		fmt.Print(groups.UserAgent)
+		exitStatus = 0
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
+		if provisionConfig.GetString(SubscriptionName) == "" {
+			return fmt.Errorf("no value found for %q", SubscriptionName)
+		}
+
+		hasClientID := provisionConfig.GetString(ClientIDName) != ""
+		hasClientSecret := provisionConfig.GetString(ClientSecretName) != ""
+
+		if (hasClientID || hasClientSecret) && !(hasClientID && hasClientSecret) {
+			return errors.New("--client-id and --client-secret must be speficied together or not at all")
+		}
+
+		var err error
+		environment, err = azure.EnvironmentFromName(provisionConfig.GetString(EnvironmentName))
+		if err != nil {
+			return err
+		}
+
+		statusWriter := ioutil.Discard
+		if provisionConfig.GetBool(VerboseName) {
+			statusWriter = os.Stdout
+		}
+		status = log.New(statusWriter, "", 0)
+
 		return nil
 	},
+}
+
+// insertResourceGroup checks for a Resource Groups's existence, if it is not found it creates that resource group. If
+// that resource group exists, it leaves it alone.
+func insertResourceGroup(ctx context.Context, groups resources.GroupsClient, name string, location string) (bool, error) {
+	existenceResp, err := groups.CheckExistence(ctx, name)
+	if err != nil {
+		return false, err
+	}
+
+	switch existenceResp.StatusCode {
+	case http.StatusNoContent:
+		return false, nil
+	case http.StatusNotFound:
+		createResp, err := groups.CreateOrUpdate(ctx, name, resources.Group{
+			Location: &location,
+		})
+		if err != nil {
+			return false, err
+		}
+
+		if createResp.StatusCode == http.StatusCreated {
+			return true, nil
+		} else if createResp.StatusCode == http.StatusOK {
+			return false, nil
+		} else {
+			return false, fmt.Errorf("unexpected status code %d during resource group creation", createResp.StatusCode)
+		}
+	default:
+		return false, fmt.Errorf("unexpected status code %d during resource group existence check", existenceResp.StatusCode)
+	}
+}
+
+func getAuthorizer(ctx context.Context, clientID, clientSecret, tenantID string) (autorest.Authorizer, error) {
+
+	config, err := adal.NewOAuthConfig(environment.ActiveDirectoryEndpoint, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	if provisionConfig.GetBool(DeviceAuthName) {
+		//client := http.Client{}
+		//adal.InitiateDeviceAuth(
+		//	client,
+		//	*config,
+		//	guid.Empty().String(), // TODO update this with Azure CLI 2.0 Client ID.
+		//	environment.ResourceManagerEndpoint)
+		status.Println("")
+		panic("not implemented")
+	} else {
+		auth, err := adal.NewServicePrincipalToken(
+			*config,
+			clientID,
+			clientSecret,
+			environment.ResourceManagerEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		status.Println("service principal token created for client: ", clientID)
+		return autorest.NewBearerAuthorizer(auth), nil
+	}
+}
+
+func getDatabaseFlavor(buffaloRoot string) string {
+	return "postgres" // TODO: parse buffalo app for the database they're using.
+}
+
+func getTenant(subscription guid.GUID) (string, error) {
+	return "dynamically discovered tenant", nil // TODO: traverse all tenants this identity has access to, looking for the subscription id.
+}
+
+var normalizeScheme = strings.ToLower
+var supportedLinkSchemes = map[string]struct{}{
+	normalizeScheme("http"):{},
+	normalizeScheme("https"):{},
+}
+
+// isSupportedLink interrogates a string to decide if it is a RequestURI that is supported by the Azure template engine
+// as defined here:
+// https://docs.microsoft.com/en-us/azure/azure-resource-manager/resource-group-linked-templates#external-template-and-external-parameters
+func isSupportedLink(subject string) bool {
+	parsed, err := url.ParseRequestURI(subject)
+	if err != nil {
+		return false
+	}
+
+	_, ok := supportedLinkSchemes[normalizeScheme(parsed.Scheme)]
+
+	return ok
 }
 
 func init() {
@@ -66,7 +362,39 @@ func init() {
 	// is called directly, e.g.:
 	// provisionCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
-	provisionCmd.Flags().StringP("image", "i", "appsvc/sample-hello-world:latest", "")
+	provisionConfig.BindEnv(SubscriptionName, "AZURE_SUBSCRIPTION_ID", "AZ_SUBSCRIPTION_ID")
+	provisionConfig.BindEnv(ClientIDName, "AZURE_CLIENT_ID", "AZ_CLIENT_ID")
+	provisionConfig.BindEnv(ClientSecretName, "AZURE_CLIENT_SECRET", "AZ_CLIENT_SECRET")
+	provisionConfig.BindEnv(TenantIDName, "AZURE_TENANT_ID", "AZ_TENANT_ID")
+	provisionConfig.BindEnv(EnvironmentName, "AZURE_ENVIRONMENT", "AZ_ENVIRONMENT")
+
+	var sanitizedClientSecret string
+	if rawSecret := provisionConfig.GetString(ClientSecretName); rawSecret != "" {
+		const safeCharCount = 10
+		if len(rawSecret) > safeCharCount {
+			sanitizedClientSecret = fmt.Sprintf("...%s", rawSecret[len(rawSecret)-safeCharCount:])
+		} else {
+			sanitizedClientSecret = "[key hidden]"
+		}
+	}
+
+	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
+	provisionConfig.SetDefault(DatabaseName, getDatabaseFlavor("."))
+	provisionConfig.SetDefault(ResoureGroupName, "buffalo-app") // TODO: generate a random suffix
+	provisionConfig.SetDefault(LocationName, LocationDefault)
+
+	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
+	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, TemplateDefault, templateUsage)
+	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), SubscriptionUsage)
+	provisionCmd.Flags().String(ClientIDName, provisionConfig.GetString(ClientIDName), clientIDUsage)
+	provisionCmd.Flags().String(ClientSecretName, sanitizedClientSecret, clientSecretUsage)
+	provisionCmd.Flags().Bool(DeviceAuthName, false, deviceAuthUsage)
+	provisionCmd.Flags().BoolP(VerboseName, VerboseShortname, false, verboseUsage)
+	provisionCmd.Flags().String(TenantIDName, provisionConfig.GetString(TenantIDName), tenantUsage)
+	provisionCmd.Flags().StringP(EnvironmentName, EnvironmentShorthand, provisionConfig.GetString(EnvironmentName), environmentUsage)
+	provisionCmd.Flags().StringP(DatabaseName, DatabaseShorthand, provisionConfig.GetString(DatabaseName), databaseUsage)
+	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
+	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
 }

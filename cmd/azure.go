@@ -27,6 +27,7 @@ import (
 // azureCmd represents the azure command
 var azureCmd = &cobra.Command{
 	Use:   "azure",
+	Aliases: []string{"az"},
 	Short: "Exposes tools for more easily using Azure services.",
 	Long: `Updates your application to get started with Azure services.
 
