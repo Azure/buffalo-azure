@@ -27,7 +27,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2017-05-10/resources"
@@ -37,26 +40,29 @@ import (
 	"github.com/marstr/guid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"net/http"
-	"net/url"
-	"strings"
 )
+
+// clientID is used to identify this application during a Device Auth flow.
+// We have deliberately spoofed as the Azure CLI 2.0 at least temporarily.
+const deviceClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
 var provisionConfig = viper.New()
 
+// These constants define a parameter which gives control over the Azure Resource Group that should be used to hold
+// the created assets.
 const (
 	ResoureGroupName       = "resource-group"
 	ResourceGroupShorthand = "g"
-	resourceGroupUsage = ""
+	resourceGroupUsage     = "The name of the Resource Group that should hold the resources created."
 )
 
 // These constants define a parameter which allows control over the Azure Region that should be used when creating a
 // resource group. If the specified resource group already exists, its location is used and this parameter is discarded.
 const (
-	LocationName = "location"
+	LocationName      = "location"
 	LocationShorthand = "l"
-	LocationDefault = "centralus"
-	locationUsage = "The Azure Region that should be used when creating a resource group."
+	LocationDefault   = "centralus"
+	locationUsage     = "The Azure Region that should be used when creating a resource group."
 )
 
 // These constants define a parameter that allows control of the type of database to be provisioned. This is largely an
@@ -126,15 +132,19 @@ const (
 	templateUsage   = "The Azure Resource Management template used to "
 )
 
-// These constants define a parameter that
+// These constants define a parameter that Azure subscription to own the resources created.
+//
+// This can also be specified with the environment variable AZURE_SUBSCRIPTION_ID or AZ_SUBSCRIPTION_ID.
 const (
 	SubscriptionName      = "subscription"
 	SubscriptionShorthand = "s"
-	SubscriptionUsage     = "The ID (in UUID format) of the Azure subscription which should host the provisioned resources."
+	subscriptionUsage     = "The ID (in UUID format) of the Azure subscription which should host the provisioned resources."
 )
 
 // These constants define a parameter which allows specification of a Service Principal for authentication.
 // This should always be used in tandem with `--client-secret`.
+//
+// This can also be specified with the environment variable AZURE_CLIENT_ID or AZ_CLIENT_ID.
 //
 // To learn more about getting started with Service Principals you can look here:
 // - Using the Azure CLI 2.0: [https://docs.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli](https://docs.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli?toc=%2Fazure%2Fazure-resource-manager%2Ftoc.json&view=azure-cli-latest)
@@ -145,25 +155,29 @@ const (
 	clientIDUsage = "The Application ID of the App Registration being used to authenticate."
 )
 
-// These constants define a parameter which allows spe
+// These constants define a parameter which allows specification of a Service Principal for authentication.
+// This should always be used in tandem with `--client-id`.
+//
+// This can also be specified with the environment variable AZURE_CLIENT_SECRET or AZ_CLIENT_SECRET.
 const (
 	ClientSecretName  = "client-secret"
-	clientSecretUsage = ""
+	clientSecretUsage = "The Key associated with the App Registration being used to authenticate."
 )
 
 // These constants define a parameter which provides the organization that should be used during authentication.
 // Providing the tenant-id explicitly can help speed up execution, but by default this program will traverse all tenants
 // available to the authenticated identity (service principal or user), and find the one containing the subscription
 // provided. This traversal may involve several HTTP requests, and is therefore somewhat latent.
+//
+// This can also be specified with the environment variable AZURE_TENANT_ID or AZ_TENANT_ID.
 const (
 	TenantIDName = "tenant-id"
 	tenantUsage  = "The ID (in form of a UUID) of the organization that the identity being used belongs to. "
 )
 
-
 const (
 	DeviceAuthName  = "use-device-auth"
-	deviceAuthUsage = ""
+	deviceAuthUsage = "Ignore --client-id and --client-secret, interactively authenticate instead."
 )
 
 const (
@@ -177,11 +191,11 @@ var status *log.Logger
 // provisionCmd represents the provision command
 var provisionCmd = &cobra.Command{
 	Aliases: []string{"p"},
-	Use:   "provision",
-	Short: "Create the infrastructure necessary to run a buffalo app on Azure.",
+	Use:     "provision",
+	Short:   "Create the infrastructure necessary to run a buffalo app on Azure.",
 	Run: func(cmd *cobra.Command, args []string) {
 		exitStatus := 1
-		defer func(){
+		defer func() {
 			os.Exit(exitStatus)
 		}()
 
@@ -228,8 +242,7 @@ var provisionCmd = &cobra.Command{
 		deployments := resources.NewDeploymentsClient(subscriptionID)
 		deployments.Authorizer = auth
 
-
-		fmt.Print(groups.UserAgent)
+		status.Print("Done.")
 		exitStatus = 0
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -298,15 +311,24 @@ func getAuthorizer(ctx context.Context, clientID, clientSecret, tenantID string)
 		return nil, err
 	}
 
+	var intermediate *adal.Token
+
 	if provisionConfig.GetBool(DeviceAuthName) {
-		//client := http.Client{}
-		//adal.InitiateDeviceAuth(
-		//	client,
-		//	*config,
-		//	guid.Empty().String(), // TODO update this with Azure CLI 2.0 Client ID.
-		//	environment.ResourceManagerEndpoint)
-		status.Println("")
-		panic("not implemented")
+		client := &http.Client{}
+		code, err := adal.InitiateDeviceAuth(
+			client,
+			*config,
+			deviceClientID,
+			environment.ResourceManagerEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println(*code.Message)
+		token, err := adal.WaitForUserCompletion(client, code)
+		if err != nil {
+			return nil, err
+		}
+		intermediate = token
 	} else {
 		auth, err := adal.NewServicePrincipalToken(
 			*config,
@@ -317,8 +339,13 @@ func getAuthorizer(ctx context.Context, clientID, clientSecret, tenantID string)
 			return nil, err
 		}
 		status.Println("service principal token created for client: ", clientID)
-		return autorest.NewBearerAuthorizer(auth), nil
+		t := auth.Token()
+		intermediate = &t
 	}
+
+	// TODO: If tenant ID wasn't provided, use common tenant above, then iterate over all available tenants then subscriptions to automatically decide the correct one.
+
+	return autorest.NewBearerAuthorizer(intermediate), nil
 }
 
 func getDatabaseFlavor(buffaloRoot string) string {
@@ -331,8 +358,8 @@ func getTenant(subscription guid.GUID) (string, error) {
 
 var normalizeScheme = strings.ToLower
 var supportedLinkSchemes = map[string]struct{}{
-	normalizeScheme("http"):{},
-	normalizeScheme("https"):{},
+	normalizeScheme("http"):  {},
+	normalizeScheme("https"): {},
 }
 
 // isSupportedLink interrogates a string to decide if it is a RequestURI that is supported by the Azure template engine
@@ -385,7 +412,7 @@ func init() {
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, TemplateDefault, templateUsage)
-	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), SubscriptionUsage)
+	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), subscriptionUsage)
 	provisionCmd.Flags().String(ClientIDName, provisionConfig.GetString(ClientIDName), clientIDUsage)
 	provisionCmd.Flags().String(ClientSecretName, sanitizedClientSecret, clientSecretUsage)
 	provisionCmd.Flags().Bool(DeviceAuthName, false, deviceAuthUsage)
