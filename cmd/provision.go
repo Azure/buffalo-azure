@@ -33,11 +33,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/profiles/latest/resources/mgmt/subscriptions"
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2017-05-10/resources"
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
-	"github.com/marstr/guid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -201,20 +201,19 @@ var provisionCmd = &cobra.Command{
 
 		// Authenticate and setup clients
 		subscriptionID := provisionConfig.GetString(SubscriptionName)
-		tenantID := provisionConfig.GetString(TenantIDName)
 		clientID := provisionConfig.GetString(ClientIDName)
 		clientSecret := provisionConfig.GetString(ClientSecretName)
 		status.Print("subscription selected: ", subscriptionID)
-		status.Print("tenant selected: ", tenantID)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
 
-		auth, err := getAuthorizer(ctx, clientID, clientSecret, tenantID)
+		auth, err := getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "unable to authenticate: ", err)
 			return
 		}
+		status.Print("tenant selected: ", provisionConfig.GetString(TenantIDName))
 
 		groups := resources.NewGroupsClient(subscriptionID)
 		groups.Authorizer = auth
@@ -267,7 +266,7 @@ var provisionCmd = &cobra.Command{
 		if provisionConfig.GetBool(VerboseName) {
 			statusWriter = os.Stdout
 		}
-		status = log.New(statusWriter, "", 0)
+		status = log.New(statusWriter, "[INFO] ", 0)
 
 		return nil
 	},
@@ -304,7 +303,11 @@ func insertResourceGroup(ctx context.Context, groups resources.GroupsClient, nam
 	}
 }
 
-func getAuthorizer(ctx context.Context, clientID, clientSecret, tenantID string) (autorest.Authorizer, error) {
+func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, tenantID string) (autorest.Authorizer, error) {
+	const commonTenant = "common"
+	if tenantID == "" {
+		tenantID = commonTenant
+	}
 
 	config, err := adal.NewOAuthConfig(environment.ActiveDirectoryEndpoint, tenantID)
 	if err != nil {
@@ -343,7 +346,15 @@ func getAuthorizer(ctx context.Context, clientID, clientSecret, tenantID string)
 		intermediate = &t
 	}
 
-	// TODO: If tenant ID wasn't provided, use common tenant above, then iterate over all available tenants then subscriptions to automatically decide the correct one.
+	if tenantID == commonTenant {
+		var final autorest.Authorizer
+		tenantID, final, err = getTenant(ctx, intermediate, subscriptionID)
+		if err != nil {
+			return nil, err
+		}
+
+		return final, nil
+	}
 
 	return autorest.NewBearerAuthorizer(intermediate), nil
 }
@@ -352,8 +363,44 @@ func getDatabaseFlavor(buffaloRoot string) string {
 	return "postgres" // TODO: parse buffalo app for the database they're using.
 }
 
-func getTenant(subscription guid.GUID) (string, error) {
-	return "dynamically discovered tenant", nil // TODO: traverse all tenants this identity has access to, looking for the subscription id.
+func getTenant(ctx context.Context, common *adal.Token, subscription string) (string, autorest.Authorizer, error) {
+	tenants := subscriptions.NewTenantsClient()
+	tenants.Authorizer = autorest.NewBearerAuthorizer(common)
+
+	var err error
+	var tenantList subscriptions.TenantListResultIterator
+
+	subscriptionClient := subscriptions.NewClient()
+
+	status.Println("using authorization to infer tenant")
+
+	for tenantList, err = tenants.ListComplete(ctx); err == nil && tenantList.NotDone(); err = tenantList.Next() {
+		var subscriptionList subscriptions.ListResultIterator
+		currentTenant := *tenantList.Value().TenantID
+		currentConfig, err := adal.NewOAuthConfig(environment.ActiveDirectoryEndpoint, currentTenant)
+		if err != nil {
+			return "", nil, err
+		}
+		currentAuth, err := adal.NewServicePrincipalTokenFromManualToken(*currentConfig, deviceClientID, environment.ResourceManagerEndpoint, adal.Token{
+			RefreshToken: common.RefreshToken,
+		})
+		if err != nil {
+			return "", nil, err
+		}
+		subscriptionClient.Authorizer = autorest.NewBearerAuthorizer(currentAuth)
+
+		for subscriptionList, err = subscriptionClient.ListComplete(ctx); err == nil && subscriptionList.NotDone(); err = subscriptionList.Next() {
+			if currentSub := subscriptionList.Value(); currentSub.SubscriptionID != nil && strings.EqualFold(*currentSub.SubscriptionID, subscription) {
+				provisionConfig.Set(TenantIDName, *tenantList.Value().TenantID)
+				return *tenantList.Value().TenantID, subscriptionClient.Authorizer, nil
+			}
+		}
+	}
+	if err != nil {
+		return "", nil, err
+	}
+
+	return "", nil, fmt.Errorf("unable to find subscription: %s", subscription)
 }
 
 var normalizeScheme = strings.ToLower
