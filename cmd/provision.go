@@ -23,8 +23,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -127,9 +129,13 @@ const (
 	// TemplateShorthand is the abbreviated means of using TemplateName.
 	TemplateShorthand = "t"
 
-	// TemplateDefault
-	TemplateDefault = "https://invalidtemplate.gobuffalo.io"
-	templateUsage   = "The Azure Resource Management template used to "
+	// TemplateDefault is the name of the Template to use if no value was provided.
+	TemplateDefault = "./azuredeploy.json"
+
+	// TemplateDefaultLink defines the link that will be used if no local rm-template is found, and a link wasn't
+	// provided.
+	TemplateDefaultLink = "https://aka.ms/buffalo-template"
+	templateUsage       = "The Azure Resource Management template which specifies the resources to provision."
 )
 
 // These constants define a parameter that Azure subscription to own the resources created.
@@ -175,11 +181,15 @@ const (
 	tenantUsage  = "The ID (in form of a UUID) of the organization that the identity being used belongs to. "
 )
 
+// These constants define a parameter which forces this program to ignore any ambient Azure settings available as
+// environment variables, and instead forces us to use Device Auth instead.
 const (
 	DeviceAuthName  = "use-device-auth"
 	deviceAuthUsage = "Ignore --client-id and --client-secret, interactively authenticate instead."
 )
 
+// These constants define a parameter which toggles whether or not status information will be printed as this program
+// executes.
 const (
 	VerboseName      = "verbose"
 	VerboseShortname = "v"
@@ -187,6 +197,7 @@ const (
 )
 
 var status *log.Logger
+var errLog *log.Logger
 
 // provisionCmd represents the provision command
 var provisionCmd = &cobra.Command{
@@ -203,17 +214,19 @@ var provisionCmd = &cobra.Command{
 		subscriptionID := provisionConfig.GetString(SubscriptionName)
 		clientID := provisionConfig.GetString(ClientIDName)
 		clientSecret := provisionConfig.GetString(ClientSecretName)
-		status.Print("subscription selected: ", subscriptionID)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
 
 		auth, err := getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "unable to authenticate: ", err)
+			errLog.Print("unable to authenticate: ", err)
 			return
 		}
 		status.Print("tenant selected: ", provisionConfig.GetString(TenantIDName))
+		status.Print("subscription selected: ", subscriptionID)
+		templateLocation := provisionConfig.GetString(TemplateName)
+		status.Println("template selected: ", templateLocation)
 
 		groups := resources.NewGroupsClient(subscriptionID)
 		groups.Authorizer = auth
@@ -228,7 +241,7 @@ var provisionCmd = &cobra.Command{
 		rgName := provisionConfig.GetString(ResoureGroupName)
 		created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "unable to fetch or create resource group %s: %v\n", rgName, err)
+			errLog.Printf("unable to fetch or create resource group %s: %v\n", rgName, err)
 			return
 		}
 		if created {
@@ -241,7 +254,36 @@ var provisionCmd = &cobra.Command{
 		deployments := resources.NewDeploymentsClient(subscriptionID)
 		deployments.Authorizer = auth
 
-		status.Print("Done.")
+		status.Println("starting deployment")
+
+		params := NewDeploymentParameters()
+		params.Parameters["database"] = DeploymentParameter{provisionConfig.GetString(DatabaseName)}
+		params.Parameters["imageName"] = DeploymentParameter{provisionConfig.GetString(ImageName)}
+
+		template, err := getDeploymentTemplate(templateLocation)
+		if err != nil {
+			errLog.Print("unable to fetch template: ", err)
+			return
+		}
+
+		template.Parameters = params
+		template.Mode = resources.Incremental
+
+		fut, err := deployments.CreateOrUpdate(ctx, rgName, "buffalo-app", resources.Deployment{
+			Properties: template,
+		})
+		if err != nil {
+			errLog.Print("unable to start deployment: ", err)
+			return
+		}
+
+		err = fut.WaitForCompletion(ctx, deployments.Client)
+		if err != nil {
+			errLog.Print("unable to poll for completion progress, your assets may or may not have finished provisioning")
+			return
+		}
+
+		status.Print("finished deployment")
 		exitStatus = 0
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -253,7 +295,7 @@ var provisionCmd = &cobra.Command{
 		hasClientSecret := provisionConfig.GetString(ClientSecretName) != ""
 
 		if (hasClientID || hasClientSecret) && !(hasClientID && hasClientSecret) {
-			return errors.New("--client-id and --client-secret must be speficied together or not at all")
+			return errors.New("--client-id and --client-secret must be specified together or not at all")
 		}
 
 		var err error
@@ -266,7 +308,7 @@ var provisionCmd = &cobra.Command{
 		if provisionConfig.GetBool(VerboseName) {
 			statusWriter = os.Stdout
 		}
-		status = log.New(statusWriter, "[INFO] ", 0)
+		status = newFormattedLog(statusWriter, "information")
 
 		return nil
 	},
@@ -342,6 +384,7 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 			return nil, err
 		}
 		status.Println("service principal token created for client: ", clientID)
+
 		t := auth.Token()
 		intermediate = &t
 	}
@@ -360,7 +403,31 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 }
 
 func getDatabaseFlavor(buffaloRoot string) string {
-	return "postgres" // TODO: parse buffalo app for the database they're using.
+	return "postgres" // TODO (#29): parse buffalo app for the database they're using.
+}
+
+func getDeploymentTemplate(raw string) (*resources.DeploymentProperties, error) {
+	if isSupportedLink(raw) {
+		return &resources.DeploymentProperties{
+			TemplateLink: &resources.TemplateLink{
+				URI: &raw,
+			},
+		}, nil
+	}
+
+	handle, err := os.Open(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	contents, err := ioutil.ReadAll(handle)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resources.DeploymentProperties{
+		Template: json.RawMessage(contents),
+	}, nil
 }
 
 func getTenant(ctx context.Context, common *adal.Token, subscription string) (string, autorest.Authorizer, error) {
@@ -423,7 +490,17 @@ func isSupportedLink(subject string) bool {
 	return ok
 }
 
+func newFormattedLog(output io.Writer, identifier string) *log.Logger {
+	const identLen = 4
+	for len(identifier) < identLen {
+		identifier = identifier + " "
+	}
+	return log.New(output, fmt.Sprintf("[%s] ", strings.ToUpper(identifier)[:identLen]), log.Ldate|log.Ltime)
+}
+
 func init() {
+	errLog = newFormattedLog(os.Stderr, "error")
+
 	azureCmd.AddCommand(provisionCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -454,7 +531,7 @@ func init() {
 
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
 	provisionConfig.SetDefault(DatabaseName, getDatabaseFlavor("."))
-	provisionConfig.SetDefault(ResoureGroupName, "buffalo-app") // TODO: generate a random suffix
+	provisionConfig.SetDefault(ResoureGroupName, "buffalo-app") // TODO (#30): generate a random suffix
 	provisionConfig.SetDefault(LocationName, LocationDefault)
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
