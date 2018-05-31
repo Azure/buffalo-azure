@@ -1,17 +1,90 @@
 package cmd
 
 import (
-	"testing"
-
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Azure/go-autorest/autorest/azure"
 )
 
+func init() {
+	var err error
+	environment, err = azure.EnvironmentFromName(provisionConfig.GetString(EnvironmentName))
+	if err != nil {
+		environment = azure.PublicCloud
+	}
+
+	status = log.New(ioutil.Discard, "", 0)
+}
+
+func Test_getAuthorizer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	subscriptionID := provisionConfig.GetString(SubscriptionName)
+	clientID := provisionConfig.GetString(ClientSecretName)
+	clientSecret := provisionConfig.GetString(ClientSecretName)
+	tenantID := provisionConfig.GetString(TenantIDName)
+
+	if tenantID == "" || subscriptionID == "" {
+		// If you don't want to tinker with the environment, you can pass these in as command-line arguments
+		// to the `go test` command, the same way you would have to call the azure provision command.
+		t.Skip("test environment not configured with a tenant or subscription")
+		return
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go t.Run("service principal, no tenant inference", func(t *testing.T) {
+		defer wg.Done()
+		if clientID == "" || clientSecret == "" {
+			t.Skip("test environment not configured with a service principal")
+			return
+		}
+
+		if auth, err := getAuthorizer(ctx, subscriptionID, clientID, clientSecret, tenantID); err != nil {
+			t.Error(err)
+		} else if auth == nil {
+			t.Log("auth unexpected nil in non error case")
+			t.Fail()
+		}
+	})
+
+	go t.Run("service principal, tenant inference", func(t *testing.T) {
+		defer wg.Done()
+
+		if clientID == "" || clientSecret == "" {
+			t.Skip("test environment not configured with a service principal")
+			return
+		}
+
+		if _, err := getAuthorizer(ctx, subscriptionID, clientID, clientSecret, ""); err == nil {
+			// Is this failing because you've found a work around and implemented Service Principal tenant inference?
+			// Awesome, change this test.
+			// Otherwise, something is wrong that could cause us to mislead customers into thinking they can do tenant
+			// inference.
+			t.Log("tenant inference should fail when using a service principal")
+			t.Fail()
+		}
+	})
+
+	wg.Wait()
+}
+
 func Test_getDeploymentTemplate_links(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	testCases := []string{
 		"https://aka.ms/buffalo-template",
 		"http://aka.ms/buffalo-template",
@@ -19,30 +92,18 @@ func Test_getDeploymentTemplate_links(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
-			result, err := getDeploymentTemplate(tc)
+			result, err := getDeploymentTemplate(ctx, tc)
 			if err != nil {
 				t.Error(err)
 			}
 
-			if result.Template != nil {
-				t.Log("unexpected value present in template")
+			if result.Template == nil {
+				t.Log("unexpected nil present in template")
 				t.Fail()
 			}
 
-			if result.TemplateLink == nil {
-				t.Log("unexpected nil template link")
-				t.Fail()
-				return
-			}
-
-			if result.TemplateLink.URI == nil {
-				t.Log("unexpected nil uri")
-				t.Fail()
-				return
-			}
-
-			if got := *result.TemplateLink.URI; !strings.EqualFold(got, tc) {
-				t.Logf("got:\n\t%q\nwant:\n\t%q", got, tc)
+			if result.TemplateLink != nil {
+				t.Log("unexpected value template link")
 				t.Fail()
 				return
 			}
@@ -51,6 +112,9 @@ func Test_getDeploymentTemplate_links(t *testing.T) {
 }
 
 func Test_getDeploymentTemplate_localFiles(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	testCases := []string{
 		"./testdata/template1.json",
 	}
@@ -63,7 +127,7 @@ func Test_getDeploymentTemplate_localFiles(t *testing.T) {
 				return
 			}
 
-			result, err := getDeploymentTemplate(tc)
+			result, err := getDeploymentTemplate(ctx, tc)
 			if err != nil {
 				t.Error(err)
 				return

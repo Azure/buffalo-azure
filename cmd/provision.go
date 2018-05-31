@@ -197,7 +197,10 @@ const (
 )
 
 var status *log.Logger
-var errLog *log.Logger
+var errLog = newFormattedLog(os.Stderr, "error")
+var debugLog *log.Logger
+
+var debug string
 
 // provisionCmd represents the provision command
 var provisionCmd = &cobra.Command{
@@ -210,10 +213,15 @@ var provisionCmd = &cobra.Command{
 			os.Exit(exitStatus)
 		}()
 
+		debugLog.Print("debugging enabled")
+
 		// Authenticate and setup clients
 		subscriptionID := provisionConfig.GetString(SubscriptionName)
 		clientID := provisionConfig.GetString(ClientIDName)
 		clientSecret := provisionConfig.GetString(ClientSecretName)
+		templateLocation := provisionConfig.GetString(TemplateName)
+		image := provisionConfig.GetString(ImageName)
+		databaseType := provisionConfig.GetString(DatabaseName)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
@@ -225,8 +233,9 @@ var provisionCmd = &cobra.Command{
 		}
 		status.Print("tenant selected: ", provisionConfig.GetString(TenantIDName))
 		status.Print("subscription selected: ", subscriptionID)
-		templateLocation := provisionConfig.GetString(TemplateName)
 		status.Println("template selected: ", templateLocation)
+		status.Println("database selected: ", databaseType)
+		status.Println("image selected: ", image)
 
 		groups := resources.NewGroupsClient(subscriptionID)
 		groups.Authorizer = auth
@@ -254,24 +263,25 @@ var provisionCmd = &cobra.Command{
 		deployments := resources.NewDeploymentsClient(subscriptionID)
 		deployments.Authorizer = auth
 
-		status.Println("starting deployment")
-
 		params := NewDeploymentParameters()
-		params.Parameters["database"] = DeploymentParameter{provisionConfig.GetString(DatabaseName)}
-		params.Parameters["imageName"] = DeploymentParameter{provisionConfig.GetString(ImageName)}
+		params.Parameters["database"] = DeploymentParameter{databaseType}
+		params.Parameters["imageName"] = DeploymentParameter{image}
+		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{"buffaloAdmin"}
+		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{"M$FT<3sBuffalo"}
 
-		template, err := getDeploymentTemplate(templateLocation)
+		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
 			errLog.Print("unable to fetch template: ", err)
 			return
 		}
 
-		template.Parameters = params
+		template.Parameters = params.Parameters
 		template.Mode = resources.Incremental
 
 		fut, err := deployments.CreateOrUpdate(ctx, rgName, "buffalo-app", resources.Deployment{
 			Properties: template,
 		})
+
 		if err != nil {
 			errLog.Print("unable to start deployment: ", err)
 			return
@@ -347,7 +357,9 @@ func insertResourceGroup(ctx context.Context, groups resources.GroupsClient, nam
 
 func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, tenantID string) (autorest.Authorizer, error) {
 	const commonTenant = "common"
+
 	if tenantID == "" {
+		debugLog.Print("tenant unset, using common tenant")
 		tenantID = commonTenant
 	}
 
@@ -356,9 +368,9 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 		return nil, err
 	}
 
-	var intermediate *adal.Token
-
 	if provisionConfig.GetBool(DeviceAuthName) {
+		var intermediate *adal.Token
+
 		client := &http.Client{}
 		code, err := adal.InitiateDeviceAuth(
 			client,
@@ -374,47 +386,57 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 			return nil, err
 		}
 		intermediate = token
-	} else {
-		auth, err := adal.NewServicePrincipalToken(
-			*config,
-			clientID,
-			clientSecret,
-			environment.ResourceManagerEndpoint)
-		if err != nil {
-			return nil, err
-		}
-		status.Println("service principal token created for client: ", clientID)
 
-		t := auth.Token()
-		intermediate = &t
+		if tenantID == commonTenant {
+			var final autorest.Authorizer
+			tenantID, final, err = getTenant(ctx, intermediate, subscriptionID)
+			if err != nil {
+				return nil, err
+			}
+
+			return final, nil
+		}
+		return autorest.NewBearerAuthorizer(intermediate), nil
 	}
 
 	if tenantID == commonTenant {
-		var final autorest.Authorizer
-		tenantID, final, err = getTenant(ctx, intermediate, subscriptionID)
-		if err != nil {
-			return nil, err
-		}
-
-		return final, nil
+		return nil, errors.New("tenant inference unsupported with Service Principal authentication")
 	}
 
-	return autorest.NewBearerAuthorizer(intermediate), nil
+	auth, err := adal.NewServicePrincipalToken(
+		*config,
+		clientID,
+		clientSecret,
+		environment.ResourceManagerEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	status.Println("service principal token created for client: ", clientID)
+	return autorest.NewBearerAuthorizer(auth), nil
 }
 
 func getDatabaseFlavor(buffaloRoot string) string {
 	return "postgres" // TODO (#29): parse buffalo app for the database they're using.
 }
 
-func getDeploymentTemplate(raw string) (*resources.DeploymentProperties, error) {
+func getDeploymentTemplate(ctx context.Context, raw string) (*resources.DeploymentProperties, error) {
 	if isSupportedLink(raw) {
+		debugLog.Print("identified external link")
+		buf := bytes.NewBuffer([]byte{})
+
+		err := downloadTemplate(ctx, buf, raw)
+		if err != nil {
+			return nil, err
+		}
+
+		debugLog.Printf("template %d bytes long", buf.Len())
+
 		return &resources.DeploymentProperties{
-			TemplateLink: &resources.TemplateLink{
-				URI: &raw,
-			},
+			Template: json.RawMessage(buf.Bytes()),
 		}, nil
 	}
 
+	debugLog.Print("identified local file")
 	handle, err := os.Open(raw)
 	if err != nil {
 		return nil, err
@@ -428,6 +450,78 @@ func getDeploymentTemplate(raw string) (*resources.DeploymentProperties, error) 
 	return &resources.DeploymentProperties{
 		Template: json.RawMessage(contents),
 	}, nil
+}
+
+var redirectCodes = map[int]struct{}{
+	http.StatusMovedPermanently:  {},
+	http.StatusPermanentRedirect: {},
+	http.StatusTemporaryRedirect: {},
+	http.StatusSeeOther:          {},
+	http.StatusFound:             {},
+}
+
+var temporaryFailureCodes = map[int]struct{}{
+	http.StatusTooManyRequests: {},
+	http.StatusGatewayTimeout:  {},
+	http.StatusRequestTimeout:  {},
+}
+
+var acceptedCodes = map[int]struct{}{
+	http.StatusOK: {},
+}
+
+func downloadTemplate(ctx context.Context, dest io.Writer, src string) error {
+	const maxRedirects = 5
+	const maxRetries = 3
+	var download func(context.Context, io.Writer, string, uint) error
+
+	status.Print("downloading template from: ", src)
+
+	download = func(ctx context.Context, dest io.Writer, src string, depth uint) (err error) {
+		if depth > maxRedirects {
+			return errors.New("too many redirects")
+		}
+
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			var req *http.Request
+			var resp *http.Response
+
+			req, err = http.NewRequest(http.MethodGet, src, nil)
+			if err != nil {
+				return
+			}
+			req = req.WithContext(ctx)
+
+			resp, err = http.DefaultClient.Do(req)
+			if err != nil {
+				return
+			}
+
+			if _, ok := acceptedCodes[resp.StatusCode]; ok {
+				_, err = io.Copy(dest, resp.Body)
+				return
+			}
+
+			if _, ok := redirectCodes[resp.StatusCode]; ok {
+				loc := resp.Header.Get("Location")
+				debugLog.Printf("HTTP Status Code %d encountered, following redirection to %s", resp.StatusCode, loc)
+				return download(ctx, dest, loc, depth+1)
+			}
+
+			if _, ok := temporaryFailureCodes[resp.StatusCode]; ok {
+				debugLog.Printf("HTTP Status Code %d encountered, retrying", resp.StatusCode)
+				continue
+			}
+
+			err = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			return
+		}
+
+		err = errors.New("too many attempts")
+		return
+	}
+
+	return download(ctx, dest, src, 1)
 }
 
 func getTenant(ctx context.Context, common *adal.Token, subscription string) (string, autorest.Authorizer, error) {
@@ -499,7 +593,13 @@ func newFormattedLog(output io.Writer, identifier string) *log.Logger {
 }
 
 func init() {
-	errLog = newFormattedLog(os.Stderr, "error")
+	var debugWriter io.Writer
+	if debug == "" {
+		debugWriter = ioutil.Discard
+	} else {
+		debugWriter = os.Stderr
+	}
+	debugLog = newFormattedLog(debugWriter, "debug")
 
 	azureCmd.AddCommand(provisionCmd)
 
@@ -529,13 +629,19 @@ func init() {
 		}
 	}
 
+	if _, err := os.Stat(TemplateDefault); err == nil {
+		provisionConfig.SetDefault(TemplateName, TemplateDefault)
+	} else {
+		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
+	}
+
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
 	provisionConfig.SetDefault(DatabaseName, getDatabaseFlavor("."))
 	provisionConfig.SetDefault(ResoureGroupName, "buffalo-app") // TODO (#30): generate a random suffix
 	provisionConfig.SetDefault(LocationName, LocationDefault)
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
-	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, TemplateDefault, templateUsage)
+	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
 	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), subscriptionUsage)
 	provisionCmd.Flags().String(ClientIDName, provisionConfig.GetString(ClientIDName), clientIDUsage)
 	provisionCmd.Flags().String(ClientSecretName, sanitizedClientSecret, clientSecretUsage)
