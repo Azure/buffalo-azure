@@ -15,7 +15,8 @@ type DeploymentParameter struct {
 // NewDeploymentParameters creates a new instance of DeploymentParameters with reasonable defaults but no parameters.
 func NewDeploymentParameters() *DeploymentParameters {
 	return &DeploymentParameters{
-		Schema:         "http://schema.management.azure.com/schemas/2014-04-01-preview/deploymentTemplate.json#",
+		Schema:         "http://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
 		ContentVersion: "1.0.0.0",
+		Parameters:     make(map[string]DeploymentParameter),
 	}
 }
