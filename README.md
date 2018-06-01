@@ -4,6 +4,8 @@
 
 By extending [gobuffalo](https://gobuffalo.io), we seek to empower rapid web developers to deploy to Azure easily, and even generate code that will integrate well with Azure services.
 
+Don't have an Azure account? [Get started right now for free.](https://aka.ms/buffalo-free-account)
+
 #### provision
 
 `buffalo azure provision [flags]`
@@ -51,6 +53,19 @@ This isn't supported yet, but if you'd like to see it, go get it moved up our ba
 ## Disclaimer
 This is an experiment by the Azure Developer Experience team to expand our usefulness to Go developers beyond generating SDKs. 
 **This is not officially supported** by the Azure DevEx team, Azure, or Microsoft.
+
+### Authentication
+
+While working with buffalo-azure, there are two options for establishing an identity that should be used for provisioning operations.
+
+#### Device Authentication
+
+This option requires manual attention, but is simple. Just add `--use-device-auth`
+
+#### Service Principals
+
+Using the command-line arguments `--client-id`, `--client-secret`, and `--tenant-id`, or the corresponding environment variables `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, 
+
 
 ## Contributing
 
