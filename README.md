@@ -12,11 +12,11 @@ It's fun to tinker with a website locally, but at some point you've got to get i
 
 #### eventgrid
 
-`buffalo generate eventgrid [flags]`
+`buffalo generate eventgrid {name} [flags]`
 
 [Azure Event Grid](https://docs.microsoft.com/en-us/azure/event-grid/overview) is an HTTP based messaging solution, that seeks to empower you while writing event-driven reactive web applications. Many Azure Services are already wired up to start informing you when their events happen using Event Grid.
 
-Implementing this eventgrid command seeks to 
+Running this command will add an action to your buffalo application that can be registered with an Event Grid Topic. It automatically responds to Subsctiption Validation events, and dispatches to different methods based on the Event Type string in an Event definition.
 
 ### Installation
 
