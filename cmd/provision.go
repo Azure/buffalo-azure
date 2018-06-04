@@ -304,7 +304,9 @@ var provisionCmd = &cobra.Command{
 		hasClientID := provisionConfig.GetString(ClientIDName) != ""
 		hasClientSecret := provisionConfig.GetString(ClientSecretName) != ""
 
-		if (hasClientID || hasClientSecret) && !(hasClientID && hasClientSecret) {
+		if !hasClientSecret && !hasClientID {
+			provisionConfig.Set(DeviceAuthName, true)
+		} else if (hasClientID || hasClientSecret) && !(hasClientID && hasClientSecret) {
 			return errors.New("--client-id and --client-secret must be specified together or not at all")
 		}
 
