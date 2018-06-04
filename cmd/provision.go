@@ -278,6 +278,7 @@ var provisionCmd = &cobra.Command{
 		template.Parameters = params.Parameters
 		template.Mode = resources.Incremental
 
+		status.Println("beginning deployment")
 		fut, err := deployments.CreateOrUpdate(ctx, rgName, "buffalo-app", resources.Deployment{
 			Properties: template,
 		})
