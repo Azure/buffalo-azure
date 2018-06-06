@@ -40,6 +40,8 @@ import (
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
+	"github.com/gobuffalo/buffalo/meta"
+	"github.com/gobuffalo/pop"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -73,7 +75,7 @@ const (
 //
 // Supported flavors:
 //  - None
-//  - Postgres
+//  - Postgresql
 const (
 	DatabaseName      = "database"
 	DatabaseShorthand = "d"
@@ -145,6 +147,13 @@ const (
 	SubscriptionName      = "subscription"
 	SubscriptionShorthand = "s"
 	subscriptionUsage     = "The ID (in UUID format) of the Azure subscription which should host the provisioned resources."
+)
+
+// These constants define a parameter which will control the profile being used for the sake of connections.
+const (
+	ProfileName      = "profile"
+	ProfileShorthand = "p"
+	profileUsage     = ""
 )
 
 // These constants define a parameter which allows specification of a Service Principal for authentication.
@@ -418,8 +427,18 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 	return autorest.NewBearerAuthorizer(auth), nil
 }
 
-func getDatabaseFlavor(buffaloRoot string) string {
-	return "postgres" // TODO (#29): parse buffalo app for the database they're using.
+func getDatabaseFlavor(buffaloRoot, profile string) (string, error) {
+	app := meta.New(buffaloRoot)
+	if !app.WithPop {
+		return "none", nil
+	}
+
+	conn, err := pop.Connect(profile)
+	if err != nil {
+		return "", err
+	}
+
+	return conn.Dialect.Name(), nil
 }
 
 func getDeploymentTemplate(ctx context.Context, raw string) (*resources.DeploymentProperties, error) {
@@ -621,6 +640,9 @@ func init() {
 	provisionConfig.BindEnv(ClientSecretName, "AZURE_CLIENT_SECRET", "AZ_CLIENT_SECRET")
 	provisionConfig.BindEnv(TenantIDName, "AZURE_TENANT_ID", "AZ_TENANT_ID")
 	provisionConfig.BindEnv(EnvironmentName, "AZURE_ENVIRONMENT", "AZ_ENVIRONMENT")
+	provisionConfig.BindEnv(ProfileName, "GO_ENV")
+
+	provisionConfig.SetDefault(ProfileName, "development")
 
 	var sanitizedClientSecret string
 	if rawSecret := provisionConfig.GetString(ClientSecretName); rawSecret != "" {
@@ -638,8 +660,13 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
+	if dialect, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
+		provisionConfig.SetDefault(DatabaseName, dialect)
+	} else {
+		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
+	}
+
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
-	provisionConfig.SetDefault(DatabaseName, getDatabaseFlavor("."))
 	provisionConfig.SetDefault(ResoureGroupName, "buffalo-app") // TODO (#30): generate a random suffix
 	provisionConfig.SetDefault(LocationName, LocationDefault)
 
@@ -655,6 +682,7 @@ func init() {
 	provisionCmd.Flags().StringP(DatabaseName, DatabaseShorthand, provisionConfig.GetString(DatabaseName), databaseUsage)
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
+	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
 }
