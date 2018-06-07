@@ -76,6 +76,7 @@ const (
 // Supported flavors:
 //  - None
 //  - Postgresql
+//  - MySQL
 const (
 	DatabaseName      = "database"
 	DatabaseShorthand = "d"
@@ -273,7 +274,7 @@ var provisionCmd = &cobra.Command{
 		deployments.Authorizer = auth
 
 		params := NewDeploymentParameters()
-		params.Parameters["database"] = DeploymentParameter{databaseType}
+		params.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
 		params.Parameters["imageName"] = DeploymentParameter{image}
 		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{"buffaloAdmin"}
 		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{"M$FT<3sBuffalo"}
