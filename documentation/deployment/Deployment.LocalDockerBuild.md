@@ -1,4 +1,4 @@
-## Deploy Using Docker
+## Deploy Using Docker from your Local Machine
 
 #### Pre-Requisites
 
