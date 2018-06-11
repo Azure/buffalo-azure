@@ -1,3 +1,6 @@
+<p align="center"><a href="https://aka.ms/buffalo-free-account"><img src="https://raw.githubusercontent.com/ashleymcnamara/gophers/296b4d47f5313822b348e442837ca2d32a7704a3/Azure_Gophers.png" width="360"></a>
+</p>
+
 # Buffalo-Azure
 
 [![GoDoc](https://godoc.org/github.com/Azure/buffalo-azure?status.svg)](https://godoc.org/github.com/Azure/buffalo-azure) [![Build Status](https://travis-ci.org/Azure/buffalo-azure.svg?branch=master)](https://travis-ci.org/Azure/buffalo-azure)
@@ -102,3 +105,6 @@ do this once across all repos using our CLA.
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). 
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact 
 [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
+## Attribution
+The image of Azure Gophers was drawn by [Ashley McNamara](https://medium.com/@ashleymcnamara), based on artwork by [Renee French](https://reneefrench.blogspot.com). It is licensed under the [Creative Commons 4.0 License](https://creativecommons.org/licenses/by-nc-sa/4.0/). You can find many more gophers like this one at: https://github.com/ashleymcnamara/gophers
