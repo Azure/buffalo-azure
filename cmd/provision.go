@@ -42,6 +42,7 @@ import (
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/pop"
+	"github.com/marstr/randname"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -668,7 +669,7 @@ func init() {
 	}
 
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
-	provisionConfig.SetDefault(ResoureGroupName, "buffalo-app") // TODO (#30): generate a random suffix
+	provisionConfig.SetDefault(ResoureGroupName, randname.GenerateWithPrefix("buffalo-app-", 6))
 	provisionConfig.SetDefault(LocationName, LocationDefault)
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
