@@ -15,8 +15,8 @@
     "services/resources/mgmt/2017-05-10/resources",
     "version"
   ]
-  revision = "94c47b0ea2e17193737d1d0939d2c7655ba82dd3"
-  version = "v17.2.0"
+  revision = "cd93ccfe0395e70031704ca68f14606588eec120"
+  version = "v17.3.0"
 
 [[projects]]
   name = "github.com/Azure/go-autorest"
@@ -28,8 +28,8 @@
     "autorest/to",
     "autorest/validation"
   ]
-  revision = "d21db7ee8958d471f5b185d700762c903549ee08"
-  version = "v10.10.0"
+  revision = "76796dcb80ab6491bf22e344402023c081a7a282"
+  version = "v10.11.1"
 
 [[projects]]
   branch = "master"
@@ -102,8 +102,8 @@
 [[projects]]
   name = "github.com/gobuffalo/packr"
   packages = ["."]
-  revision = "7f4074995d431987caaa35088199f13c44b24440"
-  version = "v1.11.0"
+  revision = "bd47f2894846e32edcf9aa37290fef76c327883f"
+  version = "v1.11.1"
 
 [[projects]]
   name = "github.com/gobuffalo/plush"
@@ -114,8 +114,8 @@
     "parser",
     "token"
   ]
-  revision = "5d52aed81c89f76ec6f19a03537c85773102ebf4"
-  version = "v3.7.3"
+  revision = "b0b0a05f963a529b49d835f868fa1e2b92f4b144"
+  version = "v3.7.4"
 
 [[projects]]
   name = "github.com/gobuffalo/pop"
@@ -282,6 +282,18 @@
   version = "v1.0.0"
 
 [[projects]]
+  name = "github.com/marstr/collection"
+  packages = ["."]
+  revision = "871b1cfa2ab97d3d8f54a034280907896190c346"
+  version = "v0.3.3"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/marstr/randname"
+  packages = ["."]
+  revision = "48a63b6052f1f9373db9388a658da30c6ab53db1"
+
+[[projects]]
   name = "github.com/mattn/anko"
   packages = [
     "ast",
@@ -441,8 +453,8 @@
     ".",
     "mem"
   ]
-  revision = "63644898a8da0bc22138abf860edaf5277b6102e"
-  version = "v1.1.0"
+  revision = "787d034dfe70e44075ccc060d346146ef53270ad"
+  version = "v1.1.1"
 
 [[projects]]
   name = "github.com/spf13/cast"
@@ -482,7 +494,7 @@
     "blowfish",
     "ssh/terminal"
   ]
-  revision = "b47b1587369238182299fe4dad77d05b8b461e06"
+  revision = "8ac0e0d97ce45cd83d1d7243c060cb8461dda5e9"
 
 [[projects]]
   branch = "master"
@@ -492,7 +504,7 @@
     "html",
     "html/atom"
   ]
-  revision = "1e491301e022f8f977054da4c2d852decd59571f"
+  revision = "db08ff08e8622530d9ed3a0e8ac279f6d4c02196"
 
 [[projects]]
   branch = "master"
@@ -507,7 +519,7 @@
     "unix",
     "windows"
   ]
-  revision = "9527bec2660bd847c050fda93a0f0c6dee0800bb"
+  revision = "bff228c7b664c5fce602223a05fb708fd8654986"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -537,6 +549,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "baecd55af5733ca9114f31985420a759a4ea9130b494b3c56b463406cc7618f3"
+  inputs-digest = "b735a8f4099268006777df3205705fac3423a7666a61f92eeba515d365aac5b7"
   solver-name = "gps-cdcl"
   solver-version = 1
