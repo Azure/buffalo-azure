@@ -16,4 +16,14 @@
 1. Ensure your GitHub account is linked to your Docker Hub account.
 1. Select "Create Auto-build Github" (This step can be slow as it loads all repos you have access to, be patient):  
 ![GitHub](./create_github_autobuild.png)
-1. Select the repository that contains your repository.
+1. Select the repository that contains your project.
+1. Navigate to your "App Service" in the Azure portal.
+1. Click on the "Container Settings" option.
+1. In the "Continuous Deployment" section, switch it "On".
+1. Click on "Show Url", and copy the "WEBHOOK URL"
+1. Navigate back to the Automated Build in Docker Hub.
+1. Click on the "Webhooks" tab
+1. Add a Webhook by clicking on the "+" sign.
+1. Give the webhook an appropriate name, like "Publish-App"
+1. Paste the URL from your App Service.
+1. Click "Save"
