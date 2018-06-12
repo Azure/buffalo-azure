@@ -313,11 +313,20 @@ var provisionCmd = &cobra.Command{
 			return
 		}
 
+		portalLink := bytes.NewBufferString("https://portal.azure.com/#resource/subscriptions/")
+		portalLink.WriteString(subscriptionID)
+		portalLink.WriteString("/resourceGroups/")
+		portalLink.WriteString(rgName)
+		portalLink.WriteString("/overview")
+
 		err = fut.WaitForCompletion(ctx, deployments.Client)
 		if err != nil {
-			errLog.Print("unable to poll for completion progress, your assets may or may not have finished provisioning")
+			errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\n", portalLink.String())
 			return
 		}
+
+		fmt.Println("Check on your new Resource Group in the Azure Portal: ", portalLink.String())
+		fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
 
 		status.Print("finished deployment")
 		exitStatus = 0
