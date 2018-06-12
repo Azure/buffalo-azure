@@ -53,11 +53,21 @@ const deviceClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
 var provisionConfig = viper.New()
 
+// These constants define a parameter which allows control of the name of the site that is to be created.
+const (
+	SiteName           = "site-name"
+	SiteShorthand      = "n"
+	siteDefaultPrefix  = "buffalo-app"
+	siteDefaultMessage = siteDefaultPrefix + "-<random>"
+	siteUsage          = "The name of the site that will be deployed to Azure."
+)
+
 // These constants define a parameter which gives control over the Azure Resource Group that should be used to hold
 // the created assets.
 const (
 	ResoureGroupName       = "resource-group"
 	ResourceGroupShorthand = "g"
+	ResourceGroupDefault   = "<site name>"
 	resourceGroupUsage     = "The name of the Resource Group that should hold the resources created."
 )
 
@@ -233,6 +243,7 @@ var provisionCmd = &cobra.Command{
 		templateLocation := provisionConfig.GetString(TemplateName)
 		image := provisionConfig.GetString(ImageName)
 		databaseType := provisionConfig.GetString(DatabaseName)
+		siteName := provisionConfig.GetString(SiteName)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
@@ -269,12 +280,15 @@ var provisionCmd = &cobra.Command{
 		} else {
 			status.Println("found resource group: ", rgName)
 		}
+		status.Println("site name selected: ", siteName)
 
 		// Provision the necessary assets.
 		deployments := resources.NewDeploymentsClient(subscriptionID)
 		deployments.Authorizer = auth
+		deployments.AddToUserAgent(userAgentBuilder.String())
 
 		params := NewDeploymentParameters()
+		params.Parameters["name"] = DeploymentParameter{siteName}
 		params.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
 		params.Parameters["imageName"] = DeploymentParameter{image}
 		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{"buffaloAdmin"}
@@ -290,7 +304,7 @@ var provisionCmd = &cobra.Command{
 		template.Mode = resources.Incremental
 
 		status.Println("beginning deployment")
-		fut, err := deployments.CreateOrUpdate(ctx, rgName, "buffalo-app", resources.Deployment{
+		fut, err := deployments.CreateOrUpdate(ctx, rgName, siteDefaultPrefix, resources.Deployment{
 			Properties: template,
 		})
 
@@ -320,6 +334,20 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.Set(DeviceAuthName, true)
 		} else if (hasClientID || hasClientSecret) && !(hasClientID && hasClientSecret) {
 			return errors.New("--client-id and --client-secret must be specified together or not at all")
+		}
+
+		nameGenerator := randname.Prefixed{
+			Prefix:     siteDefaultPrefix + "-",
+			Len:        10,
+			Acceptable: append(randname.LowercaseAlphabet, randname.ArabicNumerals...),
+		}
+
+		if sn := provisionConfig.GetString(SiteName); sn == "" || sn == siteDefaultMessage {
+			provisionConfig.Set(SiteName, nameGenerator.Generate())
+		}
+
+		if rgn := provisionConfig.GetString(ResoureGroupName); rgn == "" || rgn == ResourceGroupDefault {
+			provisionConfig.Set(ResoureGroupName, provisionConfig.GetString(SiteName))
 		}
 
 		var err error
@@ -669,8 +697,9 @@ func init() {
 	}
 
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
-	provisionConfig.SetDefault(ResoureGroupName, randname.GenerateWithPrefix("buffalo-app-", 6))
+	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
 	provisionConfig.SetDefault(LocationName, LocationDefault)
+	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
@@ -683,6 +712,7 @@ func init() {
 	provisionCmd.Flags().StringP(EnvironmentName, EnvironmentShorthand, provisionConfig.GetString(EnvironmentName), environmentUsage)
 	provisionCmd.Flags().StringP(DatabaseName, DatabaseShorthand, provisionConfig.GetString(DatabaseName), databaseUsage)
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
+	provisionCmd.Flags().StringP(SiteName, SiteShorthand, provisionConfig.GetString(SiteName), siteUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
 	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
 
