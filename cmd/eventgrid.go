@@ -35,10 +35,37 @@ import (
 
 // eventgridCmd represents the eventgrid command
 var eventgridCmd = &cobra.Command{
-	Use:     "eventgrid <name> [<EventTypeString>:<identifier>...]",
+	Use:     "eventgrid <name> [<EventTypeString>:<type identifier>...]",
 	Aliases: []string{"eg"},
 	Short:   "Generates new action(s) for handling Azure Event Grid events.",
 	Long: `Add actions for reacting to Event Grid Events to your Buffalo application.
+
+An EventTypeString is arbitrary, but often resembles a namespace. These are not
+Go-specific and are decided by the tool originating the Event. The ones provided
+by Microsoft take the form "Microsoft.<Service>.<Event>". Some examples include:
+  - Microsoft.EventGrid.SubscriptionValidationEvent
+  - Microsoft.Resources.ResourceWriteSuccess
+  - Microsoft.Storage.BlobCreated
+
+A type identifier is a Go-specific detail of this Plugin. They take the form
+"<package name>.<type name>". Some examples include:
+  - github.com/Azure/buffalo-azure/sdk/eventgrid.Cache
+  - github.com/markbates/cash.Money
+For the purpose of the Event Grid Buffalo generator, it will make most sense
+to specify a type which well accomodates the unmarshaling a JSON object into
+your type.
+
+All together, you may find yourself running a command like:
+
+buffalo generate eventgrid blobs \
+Microsoft.Storage.BlobCreated \
+Microsoft.Storage.BlobDeleted
+
+or
+
+buffalo generate eventgrid github \
+GitHub.PullRequest:github.com/google/go-github/github.PullRequestEvent \
+GitHub.Label:github.com/google/go-github/github.LabelEvent
 
 More documentation about Event Grid can be found at:
 https://azure.microsoft.com/en-us/services/event-grid/`,
