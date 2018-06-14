@@ -25,6 +25,7 @@ func New{{$.name.Camel}}Subscriber(parent eventgrid.Subscriber) (created *{{$.na
 {{ range $t := .types}}
 	dispatcher.Bind("{{$t.Identifier}}", created.Receive{{$t.Name.Camel}})
 {{end}}
+	dispatcher.Bind(eventgrid.EventTypeWildcard, created.ReceiveDefault)
 
 	return
 }
@@ -38,6 +39,11 @@ func (s *{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context,
 	}
 
 	// Replace the code below with your logic
-	return nil
+	return c.Error(http.StatusInternalServerError, errors.New("not implemented"))
 }
 {{end}}
+
+// ReceiveDefault will respond to an `eventgrid.Event` carrying any EventType as its payload.
+func (s *{{$.name.Camel}}Subscriber) ReceiveDefault(c buffalo.Context, e eventgrid.Event) error {
+	return c.Error(http.StatusInternalServerError, errors.New("not implemented"))
+}
