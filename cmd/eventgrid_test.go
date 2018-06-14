@@ -17,6 +17,12 @@ func TestParseEventArg(t *testing.T) {
 			"github.com/Azure/azure-sdk-for-go/services/eventgrid/2018-01-01/eventgrid.StorageBlobCreatedEventData",
 			nil,
 		},
+		{
+			"Microsoft.Storage.BlobCreated",
+			"Microsoft.Storage.BlobCreated",
+			wellKnownEvents["Microsoft.Storage.BlobCreated"],
+			nil,
+		},
 	}
 
 	for _, tc := range testCases {
