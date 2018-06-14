@@ -23,6 +23,12 @@ func TestParseEventArg(t *testing.T) {
 			wellKnownEvents["Microsoft.Storage.BlobCreated"],
 			nil,
 		},
+		{
+			"Microsoft.Storage.BlobCreated:github.com/marstr/playground.Blob",
+			"Microsoft.Storage.BlobCreated",
+			"github.com/marstr/playground.Blob",
+			nil,
+		},
 	}
 
 	for _, tc := range testCases {
