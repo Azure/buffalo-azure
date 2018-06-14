@@ -93,6 +93,10 @@ func init() {
 }
 
 func parseEventArg(arg string) (string, string, error) {
+	if typeIdentifier, ok := wellKnownEvents[arg]; ok {
+		return arg, typeIdentifier, nil
+	}
+
 	last := strings.LastIndex(arg, ":")
 	if last < 0 {
 		return "", "", errors.New("unexpected argument format")
