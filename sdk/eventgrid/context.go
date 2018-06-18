@@ -68,6 +68,9 @@ func (c *Context) Error(status int, err error) error {
 // Render discards the body that is populated by the renderer, but takes the status
 // into consideration for how to communicate success or failue to an Event Grid Topic.
 func (c *Context) Render(status int, r render.Renderer) error {
+	if logger := c.Logger(); logger != nil {
+		c.Logger().Info("Event processed with Status Code: %d ", status)
+	}
 	c.resp.WriteHeader(status)
 	return r.Render(c.Response(), c.Data())
 }
