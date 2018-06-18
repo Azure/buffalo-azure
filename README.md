@@ -40,26 +40,24 @@ string in an Event definition.
 This is an extension, so before you install Buffalo-Azure, make sure you've already [installed Buffalo](https://gobuffalo.io/en/docs/installation).
 
 #### Build from Source
-##### option 1 - go get  
 
-The easiest, albeit least stable, way to get started is to use `go get`.
-``` bash
-go get -u github.com/Azure/buffalo-azure
-```
-
-##### option 2 - git clone
+##### option 1 - curl
 
 > [`dep`](https://github.com/golang/dep) is a pre-requisite for these installation instructions.
 
-Building yourself isn't too arduous, and enables a reproducible build stamped with the git revision you're using.
+If you're using MacOS or Linux, you can get started by running our installation script:
 
 ``` bash
-mkdir -p $GOPATH/src/github.com/Azure/buffalo-azure
-cd $GOPATH/src/github.com/Azure/buffalo-azure
-git clone https://github.com/Azure/buffalo-azure.git .
-dep ensure
-go install -ldflags "-X github.com/Azure/buffalo-azure/cmd.version=$(git rev-parse HEAD)"
-``` 
+curl https://raw.githubusercontent.com/Azure/buffalo-azure/installScript/install.sh | sh
+```
+
+##### option 2 - go get  
+
+The most global, albeit least stable, way to get started is to use `go get`.
+
+``` bash
+go get -u github.com/Azure/buffalo-azure
+```
 
 #### Binary Distribution
 
