@@ -48,7 +48,7 @@ This is an extension, so before you install Buffalo-Azure, make sure you've alre
 If you're using MacOS or Linux, you can get started by running our installation script:
 
 ``` bash
-curl https://raw.githubusercontent.com/Azure/buffalo-azure/installScript/install.sh | sh
+curl https://raw.githubusercontent.com/Azure/buffalo-azure/master/install.sh | sh
 ```
 
 ##### option 2 - go get  
