@@ -19,11 +19,15 @@ import (
 )
 
 func TestGenerator_Run(t *testing.T) {
-	const bufCmd = "buffalo"
+	const bufCmd, depCmd = "buffalo", "dep"
+	requiredTools := []string{bufCmd, depCmd, "go", "node"}
+
 	const appName = "gentest"
-	if _, err := exec.LookPath(bufCmd); err != nil {
-		t.Skipf("%s not found on system", bufCmd)
-		return
+	for _, tool := range requiredTools {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s not found on system", tool)
+			return
+		}
 	}
 
 	subject := Generator{}
@@ -38,7 +42,7 @@ func TestGenerator_Run(t *testing.T) {
 	defer os.RemoveAll(loc)
 	t.Log("Output Location: ", loc)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 	defer cancel()
 
 	var outHandle, errHandle io.Writer
@@ -53,7 +57,7 @@ func TestGenerator_Run(t *testing.T) {
 		errHandle = ioutil.Discard
 	}
 
-	bufCreater := exec.CommandContext(ctx, bufCmd, "new", appName)
+	bufCreater := exec.CommandContext(ctx, bufCmd, "new", appName, "--with-dep")
 	bufCreater.Dir = loc
 	bufCreater.Stdout = outHandle
 	bufCreater.Stderr = errHandle
