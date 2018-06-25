@@ -89,9 +89,16 @@ const (
 //  - Postgresql
 //  - MySQL
 const (
-	DatabaseName      = "database"
+	DatabaseTypeName  = "db-type"
 	DatabaseShorthand = "d"
 	databaseUsage     = "The type of database to provision."
+)
+
+// These constants define a parameter which gives control of the name of the database to be connected to by the
+// Buffalo application.
+const (
+	DatabaseNameName  = "db-name"
+	databaseNameUsage = "The name of the database to be connected to by the Buffalo application once its deployed."
 )
 
 // These constants define a parameter which allows control over the particular Azure cloud which should be used for
@@ -242,7 +249,8 @@ var provisionCmd = &cobra.Command{
 		clientSecret := provisionConfig.GetString(ClientSecretName)
 		templateLocation := provisionConfig.GetString(TemplateName)
 		image := provisionConfig.GetString(ImageName)
-		databaseType := provisionConfig.GetString(DatabaseName)
+		databaseType := provisionConfig.GetString(DatabaseTypeName)
+		databaseName := provisionConfig.GetString(DatabaseNameName)
 		siteName := provisionConfig.GetString(SiteName)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
@@ -256,7 +264,8 @@ var provisionCmd = &cobra.Command{
 		status.Print("tenant selected: ", provisionConfig.GetString(TenantIDName))
 		status.Print("subscription selected: ", subscriptionID)
 		status.Println("template selected: ", templateLocation)
-		status.Println("database selected: ", databaseType)
+		status.Println("db-type selected: ", databaseType)
+		status.Println("db-name selected: ", databaseName)
 		status.Println("image selected: ", image)
 
 		groups := resources.NewGroupsClient(subscriptionID)
@@ -290,9 +299,10 @@ var provisionCmd = &cobra.Command{
 		params := NewDeploymentParameters()
 		params.Parameters["name"] = DeploymentParameter{siteName}
 		params.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
+		params.Parameters["databaseName"] = DeploymentParameter{databaseName}
 		params.Parameters["imageName"] = DeploymentParameter{image}
 		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{"buffaloAdmin"}
-		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{"M$FT<3sBuffalo"}
+		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{"password123"}
 
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
@@ -466,18 +476,18 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 	return autorest.NewBearerAuthorizer(auth), nil
 }
 
-func getDatabaseFlavor(buffaloRoot, profile string) (string, error) {
+func getDatabaseFlavor(buffaloRoot, profile string) (string, string, error) {
 	app := meta.New(buffaloRoot)
 	if !app.WithPop {
-		return "none", nil
+		return "none", "", nil
 	}
 
 	conn, err := pop.Connect(profile)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return conn.Dialect.Name(), nil
+	return conn.Dialect.Name(), conn.Dialect.Details().Database, nil
 }
 
 func getDeploymentTemplate(ctx context.Context, raw string) (*resources.DeploymentProperties, error) {
@@ -699,9 +709,11 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
-	if dialect, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
-		provisionConfig.SetDefault(DatabaseName, dialect)
+	if dialect, dbname, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
+		provisionConfig.SetDefault(DatabaseTypeName, dialect)
+		provisionConfig.SetDefault(DatabaseNameName, dbname)
 	} else {
+		provisionConfig.SetDefault(DatabaseTypeName, "none")
 		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
 	}
 
@@ -719,7 +731,8 @@ func init() {
 	provisionCmd.Flags().BoolP(VerboseName, VerboseShortname, false, verboseUsage)
 	provisionCmd.Flags().String(TenantIDName, provisionConfig.GetString(TenantIDName), tenantUsage)
 	provisionCmd.Flags().StringP(EnvironmentName, EnvironmentShorthand, provisionConfig.GetString(EnvironmentName), environmentUsage)
-	provisionCmd.Flags().StringP(DatabaseName, DatabaseShorthand, provisionConfig.GetString(DatabaseName), databaseUsage)
+	provisionCmd.Flags().String(DatabaseNameName, provisionConfig.GetString(DatabaseNameName), databaseNameUsage)
+	provisionCmd.Flags().StringP(DatabaseTypeName, DatabaseShorthand, provisionConfig.GetString(DatabaseTypeName), databaseUsage)
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
 	provisionCmd.Flags().StringP(SiteName, SiteShorthand, provisionConfig.GetString(SiteName), siteUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
