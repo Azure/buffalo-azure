@@ -241,11 +241,18 @@ const (
 	skipTemplateCacheUsage = "After downloading the default template, do NOT save it in the working directory."
 )
 
-// These constants defint a parameter which toggles whether or not to save the parameters used for deployment to disk.
+// These constants define a parameter which toggles whether or not to save the parameters used for deployment to disk.
 const (
 	SkipParameterCacheName      = "skip-parameters-cache"
 	SkipParameterCacheShorthand = "p"
 	skipParameterCacheUsage     = "After creating deploying the site, do NOT save the parameters that were used for deployment."
+)
+
+// These constants define a parameter which toggles whether or not a deployment is actually started.
+const (
+	SkipDeploymentName      = "skip-deployment"
+	SkipDeploymentShorthand = "x"
+	skipDeploymentUsage     = "Do not create an Azure deployment, do just the meta tasks."
 )
 
 var status *log.Logger
@@ -260,12 +267,8 @@ var provisionCmd = &cobra.Command{
 	Use:     "provision",
 	Short:   "Create the infrastructure necessary to run a buffalo app on Azure.",
 	Run: func(cmd *cobra.Command, args []string) {
-		exitStatus := 1
-		defer func() {
-			os.Exit(exitStatus)
-		}()
-
 		debugLog.Print("debugging enabled")
+		debugLog.Printf("User Agent built as: %q", userAgent)
 
 		// Authenticate and setup clients
 		subscriptionID := provisionConfig.GetString(SubscriptionName)
@@ -336,16 +339,23 @@ var provisionCmd = &cobra.Command{
 		template.Mode = resources.Incremental
 
 		deploymentResults := make(chan error)
-		go func(errOut chan<- error) {
-			defer close(errOut)
-			status.Println("beginning deployment")
-			if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err != nil {
-				errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", portalLink.String(), err)
-				errOut <- err
-				return
-			}
-			status.Print("finished deployment")
-		}(deploymentResults)
+		if provisionConfig.GetBool(SkipDeploymentName) {
+			close(deploymentResults)
+		} else {
+			go func(errOut chan<- error) {
+				defer close(errOut)
+				status.Println("beginning deployment")
+				if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err == nil {
+					fmt.Println("Check on your new Resource Group in the Azure Portal: ", portalLink.String())
+					fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
+				} else {
+					errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", portalLink.String(), err)
+					errOut <- err
+					return
+				}
+				status.Print("finished deployment")
+			}(deploymentResults)
+		}
 
 		doCache := func(ctx context.Context, errOut chan<- error, contents interface{}, location, flavor string) {
 			defer close(errOut)
@@ -383,15 +393,7 @@ var provisionCmd = &cobra.Command{
 
 		waitOnResults(ctx, templateSaveResults)
 		waitOnResults(ctx, parameterSaveResults)
-
-		if err := waitOnResults(ctx, deploymentResults); err != nil {
-			return
-		}
-
-		fmt.Println("Check on your new Resource Group in the Azure Portal: ", portalLink.String())
-		fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
-
-		exitStatus = 0
+		waitOnResults(ctx, deploymentResults)
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
 		if provisionConfig.GetString(SubscriptionName) == "" {
@@ -823,6 +825,7 @@ func init() {
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
 	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
 	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
+	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
 	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
@@ -833,5 +836,4 @@ func init() {
 		userAgentBuilder.WriteString(version)
 	}
 	userAgent = userAgentBuilder.String()
-	debugLog.Printf("User Agent built as: %q", userAgent)
 }
