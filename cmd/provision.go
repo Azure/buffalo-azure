@@ -53,6 +53,8 @@ const deviceClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
 var provisionConfig = viper.New()
 
+var userAgent string
+
 // These constants define a parameter which allows control of the name of the site that is to be created.
 const (
 	SiteName           = "site-name"
@@ -109,8 +111,8 @@ const (
 // - AzureGermanCloud
 // - AzureUSGovernmentCloud
 const (
-	EnvironmentName      = "environment"
-	EnvironmentShorthand = "e"
+	EnvironmentName      = "az-env"
+	EnvironmentShorthand = "a"
 	EnvironmentDefault   = "AzurePublicCloud"
 	environmentUsage     = "The Azure environment that will be targeted for deployment."
 )
@@ -159,20 +161,29 @@ const (
 	templateUsage       = "The Azure Resource Management template which specifies the resources to provision."
 )
 
+// These constants define a parameter which allows control of the ARM template parameters that should be used during
+// deployment.
+const (
+	TemplateParametersName      = "rm-template-params"
+	TemplateParametersShorthand = "p"
+	TemplateParametersDefault   = "./azuredeploy.parameters.json"
+	templateParametersUsage     = "The parameters that should be provided when creating a deployment."
+)
+
 // These constants define a parameter that Azure subscription to own the resources created.
 //
 // This can also be specified with the environment variable AZURE_SUBSCRIPTION_ID or AZ_SUBSCRIPTION_ID.
 const (
-	SubscriptionName      = "subscription"
+	SubscriptionName      = "subscription-id"
 	SubscriptionShorthand = "s"
 	subscriptionUsage     = "The ID (in UUID format) of the Azure subscription which should host the provisioned resources."
 )
 
 // These constants define a parameter which will control the profile being used for the sake of connections.
 const (
-	ProfileName      = "profile"
-	ProfileShorthand = "p"
-	profileUsage     = ""
+	ProfileName      = "buffalo-env"
+	ProfileShorthand = "b"
+	profileUsage     = "The buffalo environment that should be used."
 )
 
 // These constants define a parameter which allows specification of a Service Principal for authentication.
@@ -224,6 +235,19 @@ const (
 	verboseUsage     = "Print out status information as this program executes."
 )
 
+// These constants define a parameter which toggles whether or not to save the template used for deployment to disk.
+const (
+	SkipTemplateCacheName  = "skip-template-cache"
+	skipTemplateCacheUsage = "After downloading the default template, do NOT save it in the working directory."
+)
+
+// These constants defint a parameter which toggles whether or not to save the parameters used for deployment to disk.
+const (
+	SkipParameterCacheName      = "skip-parameters-cache"
+	SkipParameterCacheShorthand = "p"
+	skipParameterCacheUsage     = "After creating deploying the site, do NOT save the parameters that were used for deployment."
+)
+
 var status *log.Logger
 var errLog = newFormattedLog(os.Stderr, "error")
 var debugLog *log.Logger
@@ -261,21 +285,16 @@ var provisionCmd = &cobra.Command{
 			errLog.Print("unable to authenticate: ", err)
 			return
 		}
-		status.Print("tenant selected: ", provisionConfig.GetString(TenantIDName))
-		status.Print("subscription selected: ", subscriptionID)
-		status.Println("template selected: ", templateLocation)
-		status.Println("db-type selected: ", databaseType)
-		status.Println("db-name selected: ", databaseName)
-		status.Println("image selected: ", image)
+		status.Print(TenantIDName+" selected: ", provisionConfig.GetString(TenantIDName))
+		status.Print(SubscriptionName+" selected: ", subscriptionID)
+		status.Println(TemplateName+" selected: ", templateLocation)
+		status.Println(DatabaseTypeName+" selected: ", databaseType)
+		status.Println(DatabaseNameName+" selected: ", databaseName)
+		status.Println(ImageName+" selected: ", image)
 
 		groups := resources.NewGroupsClient(subscriptionID)
 		groups.Authorizer = auth
-		userAgentBuilder := bytes.NewBufferString("buffalo-azure")
-		if version != "" {
-			userAgentBuilder.WriteRune('/')
-			userAgentBuilder.WriteString(version)
-		}
-		groups.AddToUserAgent(userAgentBuilder.String())
+		groups.AddToUserAgent(userAgent)
 
 		// Assert the presence of the specified Resource Group
 		rgName := provisionConfig.GetString(ResoureGroupName)
@@ -291,10 +310,13 @@ var provisionCmd = &cobra.Command{
 		}
 		status.Println("site name selected: ", siteName)
 
+		portalLink := bytes.NewBufferString("https://portal.azure.com/#resource/subscriptions/")
+		portalLink.WriteString(subscriptionID)
+		portalLink.WriteString("/resourceGroups/")
+		portalLink.WriteString(rgName)
+		portalLink.WriteString("/overview")
+
 		// Provision the necessary assets.
-		deployments := resources.NewDeploymentsClient(subscriptionID)
-		deployments.Authorizer = auth
-		deployments.AddToUserAgent(userAgentBuilder.String())
 
 		params := NewDeploymentParameters()
 		params.Parameters["name"] = DeploymentParameter{siteName}
@@ -313,32 +335,62 @@ var provisionCmd = &cobra.Command{
 		template.Parameters = params.Parameters
 		template.Mode = resources.Incremental
 
-		status.Println("beginning deployment")
-		fut, err := deployments.CreateOrUpdate(ctx, rgName, siteDefaultPrefix, resources.Deployment{
-			Properties: template,
-		})
+		deploymentResults := make(chan error)
+		go func(errOut chan<- error) {
+			defer close(errOut)
+			status.Println("beginning deployment")
+			if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err != nil {
+				errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", portalLink.String(), err)
+				errOut <- err
+				return
+			}
+			status.Print("finished deployment")
+		}(deploymentResults)
 
-		if err != nil {
-			errLog.Print("unable to start deployment: ", err)
-			return
+		doCache := func(ctx context.Context, errOut chan<- error, contents interface{}, location, flavor string) {
+			defer close(errOut)
+			status.Printf("caching %s", flavor)
+			err := cache(ctx, contents, location)
+			if err != nil {
+				errLog.Printf("unable to cache file %s because: %v", location, err)
+				errOut <- err
+				return
+			}
+			status.Printf("%s cached", flavor)
 		}
 
-		portalLink := bytes.NewBufferString("https://portal.azure.com/#resource/subscriptions/")
-		portalLink.WriteString(subscriptionID)
-		portalLink.WriteString("/resourceGroups/")
-		portalLink.WriteString(rgName)
-		portalLink.WriteString("/overview")
+		templateSaveResults, parameterSaveResults := make(chan error), make(chan error)
+		if provisionConfig.GetBool(SkipTemplateCacheName) {
+			close(templateSaveResults)
+		} else {
+			go doCache(ctx, templateSaveResults, template.Template, TemplateDefault, "template")
+		}
 
-		err = fut.WaitForCompletion(ctx, deployments.Client)
-		if err != nil {
-			errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\n", portalLink.String())
+		if provisionConfig.GetBool(SkipParameterCacheName) {
+			close(parameterSaveResults)
+		} else {
+			go doCache(ctx, parameterSaveResults, template.Parameters, TemplateParametersDefault, "parameters")
+		}
+
+		waitOnResults := func(ctx context.Context, results <-chan error) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case err := <-results:
+				return err
+			}
+		}
+
+		waitOnResults(ctx, templateSaveResults)
+		waitOnResults(ctx, parameterSaveResults)
+
+		if err := waitOnResults(ctx, deploymentResults); err != nil {
 			return
 		}
 
 		fmt.Println("Check on your new Resource Group in the Azure Portal: ", portalLink.String())
 		fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
 
-		status.Print("finished deployment")
 		exitStatus = 0
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -383,6 +435,21 @@ var provisionCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func cache(ctx context.Context, contents interface{}, outputName string) error {
+	if handle, err := os.Create(outputName); err == nil {
+		defer handle.Close()
+
+		enc := json.NewEncoder(handle)
+		err = enc.Encode(contents)
+		if err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
+	return nil
 }
 
 // insertResourceGroup checks for a Resource Groups's existence, if it is not found it creates that resource group. If
@@ -488,6 +555,20 @@ func getDatabaseFlavor(buffaloRoot, profile string) (string, string, error) {
 	}
 
 	return conn.Dialect.Name(), conn.Dialect.Details().Database, nil
+}
+
+func doDeployment(ctx context.Context, authorizer autorest.Authorizer, subscriptionID, resourceGroup string, properties *resources.DeploymentProperties) (err error) {
+	deployments := resources.NewDeploymentsClient(subscriptionID)
+	deployments.Authorizer = authorizer
+	deployments.AddToUserAgent(userAgent)
+
+	fut, err := deployments.CreateOrUpdate(ctx, resourceGroup, siteDefaultPrefix, resources.Deployment{Properties: properties})
+	if err != nil {
+		return
+	}
+
+	err = fut.WaitForCompletion(ctx, deployments.Client)
+	return
 }
 
 func getDeploymentTemplate(ctx context.Context, raw string) (*resources.DeploymentProperties, error) {
@@ -736,7 +817,17 @@ func init() {
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
 	provisionCmd.Flags().StringP(SiteName, SiteShorthand, provisionConfig.GetString(SiteName), siteUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
+	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
+	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
 	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
+
+	userAgentBuilder := bytes.NewBufferString("buffalo-azure")
+	if version != "" {
+		userAgentBuilder.WriteRune('/')
+		userAgentBuilder.WriteString(version)
+	}
+	userAgent = userAgentBuilder.String()
+	debugLog.Printf("User Agent built as: %q", userAgent)
 }
