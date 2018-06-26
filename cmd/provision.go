@@ -407,6 +407,10 @@ var provisionCmd = &cobra.Command{
 			return errors.New("--client-id and --client-secret must be specified together or not at all")
 		}
 
+		if provisionConfig.GetString(TemplateName) == TemplateDefault {
+			provisionConfig.Set(SkipTemplateCacheName, true)
+		}
+
 		nameGenerator := randname.Prefixed{
 			Prefix:     siteDefaultPrefix + "-",
 			Len:        10,
