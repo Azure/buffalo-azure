@@ -449,8 +449,9 @@ var provisionCmd = &cobra.Command{
 		}
 
 		var err error
-		deployParams, err = loadFromParameterFile(provisionConfig.GetString(TemplateParametersName))
-		if err != nil {
+		paramFile := provisionConfig.GetString(TemplateParametersName)
+		deployParams, err = loadFromParameterFile(paramFile)
+		if err != nil && paramFile != TemplateParametersDefault {
 			return fmt.Errorf("unable to load parameters file: %v", err)
 		}
 		setDefaults(provisionConfig, deployParams)
@@ -879,10 +880,12 @@ func init() {
 		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
 	}
 
+	provisionConfig.SetDefault(ImageName, ImageDefault)
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
 	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
 	provisionConfig.SetDefault(LocationName, LocationDefaultText)
 	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
+	provisionConfig.SetDefault(TemplateParametersName, TemplateParametersDefault)
 
 	var sanitizedClientSecret string
 	if rawSecret := provisionConfig.GetString(ClientSecretName); rawSecret != "" {
@@ -900,7 +903,7 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
-	if p, err := loadFromParameterFile(TemplateParametersDefault); err == nil {
+	if p, err := loadFromParameterFile(provisionConfig.GetString(TemplateParametersName)); err == nil {
 		setDefaults(provisionConfig, p)
 		deployParams = p
 	} else {
