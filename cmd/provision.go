@@ -261,7 +261,7 @@ const (
 // These constants define a parameter which toggles whether or not to save the parameters used for deployment to disk.
 const (
 	SkipParameterCacheName      = "skip-parameters-cache"
-	SkipParameterCacheShorthand = "p"
+	SkipParameterCacheShorthand = "y"
 	skipParameterCacheUsage     = "After creating deploying the site, do NOT save the parameters that were used for deployment."
 )
 
@@ -277,6 +277,8 @@ var errLog = newFormattedLog(os.Stderr, "error")
 var debugLog *log.Logger
 
 var debug string
+
+var deployParams *DeploymentParameters
 
 // provisionCmd represents the provision command
 var provisionCmd = &cobra.Command{
@@ -313,7 +315,7 @@ var provisionCmd = &cobra.Command{
 		status.Println(DatabaseNameName+" selected: ", databaseName)
 		status.Println(DatabaseAdminName+" selected: ", databaseAdmin)
 
-		if usingDB, dbPassword := strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
+		if usingDB, dbPassword := !strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
 			provisionConfig.Set(DatabasePasswordName, randname.GenerateWithPrefix("MSFT+Buffalo-", 20))
 			status.Println("generated database password")
 		} else if usingDB {
@@ -344,13 +346,14 @@ var provisionCmd = &cobra.Command{
 
 		// Provision the necessary assets.
 
-		params := NewDeploymentParameters()
-		params.Parameters["name"] = DeploymentParameter{siteName}
-		params.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
-		params.Parameters["databaseName"] = DeploymentParameter{databaseName}
-		params.Parameters["imageName"] = DeploymentParameter{image}
-		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{databaseAdmin}
-		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{provisionConfig.GetString(DatabasePasswordName)}
+		deployParams.Parameters["name"] = DeploymentParameter{siteName}
+		deployParams.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
+		deployParams.Parameters["databaseName"] = DeploymentParameter{databaseName}
+		deployParams.Parameters["imageName"] = DeploymentParameter{image}
+		deployParams.Parameters["databaseAdministratorLogin"] = DeploymentParameter{databaseAdmin}
+		deployParams.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{provisionConfig.GetString(DatabasePasswordName)}
+
+		debugLog.Print("Deployment Parameters: %#v", deployParams.Parameters)
 
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
@@ -358,7 +361,7 @@ var provisionCmd = &cobra.Command{
 			return
 		}
 
-		template.Parameters = params.Parameters
+		template.Parameters = deployParams.Parameters
 		template.Mode = resources.Incremental
 
 		deploymentResults := make(chan error)
@@ -402,7 +405,7 @@ var provisionCmd = &cobra.Command{
 		if provisionConfig.GetBool(SkipParameterCacheName) {
 			close(parameterSaveResults)
 		} else {
-			go doCache(ctx, parameterSaveResults, stripDBPassword(template.Parameters.(*DeploymentParameters)), TemplateParametersDefault, "parameters")
+			go doCache(ctx, parameterSaveResults, stripDBPassword(deployParams), TemplateParametersDefault, "parameters")
 		}
 
 		waitOnResults := func(ctx context.Context, results <-chan error) error {
@@ -442,37 +445,6 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.Set(SkipTemplateCacheName, true)
 		}
 
-		deployParam := NewDeploymentParameters()
-		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
-			dec := json.NewDecoder(handle)
-			err = dec.Decode(deployParam)
-			if err != nil {
-				return fmt.Errorf("parameters file in invalid format: %v", err)
-			}
-		} else if os.IsNotExist(err) {
-			return fmt.Errorf("could not read parameters file: %v", err)
-		}
-
-		if name, ok := deployParam.Parameters["name"]; ok {
-			provisionConfig.SetDefault(SiteName, name)
-		}
-
-		if database, ok := deployParam.Parameters["database"]; ok {
-			provisionConfig.SetDefault(DatabaseTypeName, database)
-		}
-
-		if databaseName, ok := deployParam.Parameters["databaseName"]; ok {
-			provisionConfig.SetDefault(DatabaseNameName, databaseName)
-		}
-
-		if image, ok := deployParam.Parameters["imageName"]; ok {
-			provisionConfig.SetDefault(ImageName, image)
-		}
-
-		if dbAdmin, ok := deployParam.Parameters["databaseAdministratorLogin"]; ok {
-			provisionConfig.SetDefault(DatabaseAdminName, dbAdmin)
-		}
-
 		nameGenerator := randname.Prefixed{
 			Prefix:     siteDefaultPrefix + "-",
 			Len:        10,
@@ -499,6 +471,7 @@ var provisionCmd = &cobra.Command{
 
 func stripDBPassword(original *DeploymentParameters) (copy *DeploymentParameters) {
 	copy = NewDeploymentParameters()
+	copy.Parameters = make(map[string]DeploymentParameter, len(original.Parameters))
 	copy.ContentVersion = original.ContentVersion
 	copy.Schema = original.Schema
 
@@ -850,6 +823,19 @@ func init() {
 
 	provisionConfig.SetDefault(ProfileName, "development")
 
+	if dialect, dbname, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
+		provisionConfig.SetDefault(DatabaseTypeName, dialect)
+		provisionConfig.SetDefault(DatabaseNameName, dbname)
+	} else {
+		provisionConfig.SetDefault(DatabaseTypeName, "none")
+		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
+	}
+
+	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
+	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
+	provisionConfig.SetDefault(LocationName, LocationDefault)
+	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
+
 	var sanitizedClientSecret string
 	if rawSecret := provisionConfig.GetString(ClientSecretName); rawSecret != "" {
 		const safeCharCount = 10
@@ -866,22 +852,37 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
+	deployParams = NewDeploymentParameters()
 	if _, err := os.Stat(TemplateParametersDefault); err == nil {
 		provisionConfig.SetDefault(TemplateParametersDefault, TemplateParametersDefault)
-	}
+		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
+			dec := json.NewDecoder(handle)
+			err = dec.Decode(deployParams)
+			if err != nil {
+				errLog.Printf("parameters file in invalid format: %v", err)
+			}
+		}
 
-	if dialect, dbname, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
-		provisionConfig.SetDefault(DatabaseTypeName, dialect)
-		provisionConfig.SetDefault(DatabaseNameName, dbname)
-	} else {
-		provisionConfig.SetDefault(DatabaseTypeName, "none")
-		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
-	}
+		if name, ok := deployParams.Parameters["name"]; ok {
+			provisionConfig.SetDefault(SiteName, name)
+		}
 
-	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
-	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
-	provisionConfig.SetDefault(LocationName, LocationDefault)
-	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
+		if database, ok := deployParams.Parameters["database"]; ok {
+			provisionConfig.SetDefault(DatabaseTypeName, database)
+		}
+
+		if databaseName, ok := deployParams.Parameters["databaseName"]; ok {
+			provisionConfig.SetDefault(DatabaseNameName, databaseName)
+		}
+
+		if image, ok := deployParams.Parameters["imageName"]; ok {
+			provisionConfig.SetDefault(ImageName, image)
+		}
+
+		if dbAdmin, ok := deployParams.Parameters["databaseAdministratorLogin"]; ok {
+			provisionConfig.SetDefault(DatabaseAdminName, dbAdmin)
+		}
+	}
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
