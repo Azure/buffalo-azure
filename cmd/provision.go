@@ -881,6 +881,7 @@ func init() {
 		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
 	}
 
+	provisionConfig.SetDefault(DatabaseAdminName, DatabaseAdminDefault)
 	provisionConfig.SetDefault(ImageName, ImageDefault)
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
 	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
