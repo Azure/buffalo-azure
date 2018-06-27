@@ -402,7 +402,7 @@ var provisionCmd = &cobra.Command{
 		if provisionConfig.GetBool(SkipParameterCacheName) {
 			close(parameterSaveResults)
 		} else {
-			go doCache(ctx, parameterSaveResults, template.Parameters, TemplateParametersDefault, "parameters")
+			go doCache(ctx, parameterSaveResults, stripDBPassword(template.Parameters.(*DeploymentParameters)), TemplateParametersDefault, "parameters")
 		}
 
 		waitOnResults := func(ctx context.Context, results <-chan error) error {
@@ -442,6 +442,37 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.Set(SkipTemplateCacheName, true)
 		}
 
+		deployParam := NewDeploymentParameters()
+		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
+			dec := json.NewDecoder(handle)
+			err = dec.Decode(deployParam)
+			if err != nil {
+				return fmt.Errorf("parameters file in invalid format: %v", err)
+			}
+		} else if os.IsNotExist(err) {
+			return fmt.Errorf("could not read parameters file: %v", err)
+		}
+
+		if name, ok := deployParam.Parameters["name"]; ok {
+			provisionConfig.SetDefault(SiteName, name)
+		}
+
+		if database, ok := deployParam.Parameters["database"]; ok {
+			provisionConfig.SetDefault(DatabaseTypeName, database)
+		}
+
+		if databaseName, ok := deployParam.Parameters["databaseName"]; ok {
+			provisionConfig.SetDefault(DatabaseNameName, databaseName)
+		}
+
+		if image, ok := deployParam.Parameters["imageName"]; ok {
+			provisionConfig.SetDefault(ImageName, image)
+		}
+
+		if dbAdmin, ok := deployParam.Parameters["databaseAdministratorLogin"]; ok {
+			provisionConfig.SetDefault(DatabaseAdminName, dbAdmin)
+		}
+
 		nameGenerator := randname.Prefixed{
 			Prefix:     siteDefaultPrefix + "-",
 			Len:        10,
@@ -464,6 +495,18 @@ var provisionCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func stripDBPassword(original *DeploymentParameters) (copy *DeploymentParameters) {
+	copy = NewDeploymentParameters()
+	copy.ContentVersion = original.ContentVersion
+	copy.Schema = original.Schema
+
+	for k, v := range original.Parameters {
+		copy.Parameters[k] = v
+	}
+	delete(copy.Parameters, "databaseAdministratorLoginPassword")
+	return copy
 }
 
 func cache(ctx context.Context, contents interface{}, outputName string) error {
@@ -823,6 +866,10 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
+	if _, err := os.Stat(TemplateParametersDefault); err == nil {
+		provisionConfig.SetDefault(TemplateParametersDefault, TemplateParametersDefault)
+	}
+
 	if dialect, dbname, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
 		provisionConfig.SetDefault(DatabaseTypeName, dialect)
 		provisionConfig.SetDefault(DatabaseNameName, dbname)
@@ -855,7 +902,7 @@ func init() {
 	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
 	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, DatabasePasswordDefault, databasePasswordUsage)
 	provisionCmd.Flags().String(DatabaseAdminName, DatabaseAdminDefault, databaseAdminUsage)
-	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
+	provisionCmd.Flags().StringP(TemplateParametersName, TemplateParametersShorthand, provisionConfig.GetString(TemplateParametersName), templateParametersUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
 
