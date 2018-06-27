@@ -1,0 +1,21 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "database": {
+            "value": "postgresql"
+        },
+        "databaseAdministratorLogin": {
+            "value": "buffaloAdmin"
+        },
+        "databaseName": {
+            "value": "buffalo30_development"
+        },
+        "imageName": {
+            "value": "marstr/quickstart:latest"
+        },
+        "name": {
+            "value": "buffalo-app-uqqq1nfno1"
+        }
+    }
+}

@@ -53,6 +53,8 @@ const deviceClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
 var provisionConfig = viper.New()
 
+var userAgent string
+
 // These constants define a parameter which allows control of the name of the site that is to be created.
 const (
 	SiteName           = "site-name"
@@ -74,10 +76,11 @@ const (
 // These constants define a parameter which allows control over the Azure Region that should be used when creating a
 // resource group. If the specified resource group already exists, its location is used and this parameter is discarded.
 const (
-	LocationName      = "location"
-	LocationShorthand = "l"
-	LocationDefault   = "centralus"
-	locationUsage     = "The Azure Region that should be used when creating a resource group."
+	LocationName        = "location"
+	LocationShorthand   = "l"
+	LocationDefault     = "centralus"
+	LocationDefaultText = "<resource group location>, or " + LocationDefault
+	locationUsage       = "The Azure Region that should be used when creating a resource group."
 )
 
 // These constants define a parameter that allows control of the type of database to be provisioned. This is largely an
@@ -101,6 +104,23 @@ const (
 	databaseNameUsage = "The name of the database to be connected to by the Buffalo application once its deployed."
 )
 
+// These constants defeine a parameter which controls the password of the
+const (
+	DatabaseAdminName    = "db-admin"
+	DatabaseAdminDefault = "buffaloAdmin"
+	databaseAdminUsage   = "The user handle of the administratr account "
+)
+
+// These constants define a parameter which controls the password of the database provisioned. For marginal security,
+// it is randomly generated each time `buffalo azure provision` is run. It will be visibile in the "connection strings"
+// of your App Service.
+const (
+	DatabasePasswordName      = "db-password"
+	DatabasePasswordShorthand = "w"
+	DatabasePasswordDefault   = "<randomly generated>"
+	databasePasswordUsage     = "The administrator password for the database created. It is recommended you read this from a file instead of typing it in from your terminal."
+)
+
 // These constants define a parameter which allows control over the particular Azure cloud which should be used for
 // deployment.
 // Some examples of Azure environments by name include:
@@ -109,8 +129,8 @@ const (
 // - AzureGermanCloud
 // - AzureUSGovernmentCloud
 const (
-	EnvironmentName      = "environment"
-	EnvironmentShorthand = "e"
+	EnvironmentName      = "az-env"
+	EnvironmentShorthand = "a"
 	EnvironmentDefault   = "AzurePublicCloud"
 	environmentUsage     = "The Azure environment that will be targeted for deployment."
 )
@@ -159,20 +179,29 @@ const (
 	templateUsage       = "The Azure Resource Management template which specifies the resources to provision."
 )
 
+// These constants define a parameter which allows control of the ARM template parameters that should be used during
+// deployment.
+const (
+	TemplateParametersName      = "rm-template-params"
+	TemplateParametersShorthand = "p"
+	TemplateParametersDefault   = "./azuredeploy.parameters.json"
+	templateParametersUsage     = "The parameters that should be provided when creating a deployment."
+)
+
 // These constants define a parameter that Azure subscription to own the resources created.
 //
 // This can also be specified with the environment variable AZURE_SUBSCRIPTION_ID or AZ_SUBSCRIPTION_ID.
 const (
-	SubscriptionName      = "subscription"
+	SubscriptionName      = "subscription-id"
 	SubscriptionShorthand = "s"
 	subscriptionUsage     = "The ID (in UUID format) of the Azure subscription which should host the provisioned resources."
 )
 
 // These constants define a parameter which will control the profile being used for the sake of connections.
 const (
-	ProfileName      = "profile"
-	ProfileShorthand = "p"
-	profileUsage     = ""
+	ProfileName      = "buffalo-env"
+	ProfileShorthand = "b"
+	profileUsage     = "The buffalo environment that should be used."
 )
 
 // These constants define a parameter which allows specification of a Service Principal for authentication.
@@ -224,11 +253,33 @@ const (
 	verboseUsage     = "Print out status information as this program executes."
 )
 
+// These constants define a parameter which toggles whether or not to save the template used for deployment to disk.
+const (
+	SkipTemplateCacheName  = "skip-template-cache"
+	skipTemplateCacheUsage = "After downloading the default template, do NOT save it in the working directory."
+)
+
+// These constants define a parameter which toggles whether or not to save the parameters used for deployment to disk.
+const (
+	SkipParameterCacheName      = "skip-parameters-cache"
+	SkipParameterCacheShorthand = "y"
+	skipParameterCacheUsage     = "After creating deploying the site, do NOT save the parameters that were used for deployment."
+)
+
+// These constants define a parameter which toggles whether or not a deployment is actually started.
+const (
+	SkipDeploymentName      = "skip-deployment"
+	SkipDeploymentShorthand = "x"
+	skipDeploymentUsage     = "Do not create an Azure deployment, do just the meta tasks."
+)
+
 var status *log.Logger
 var errLog = newFormattedLog(os.Stderr, "error")
 var debugLog *log.Logger
 
 var debug string
+
+var deployParams *DeploymentParameters
 
 // provisionCmd represents the provision command
 var provisionCmd = &cobra.Command{
@@ -236,12 +287,8 @@ var provisionCmd = &cobra.Command{
 	Use:     "provision",
 	Short:   "Create the infrastructure necessary to run a buffalo app on Azure.",
 	Run: func(cmd *cobra.Command, args []string) {
-		exitStatus := 1
-		defer func() {
-			os.Exit(exitStatus)
-		}()
-
 		debugLog.Print("debugging enabled")
+		debugLog.Printf("User Agent built as: %q", userAgent)
 
 		// Authenticate and setup clients
 		subscriptionID := provisionConfig.GetString(SubscriptionName)
@@ -251,6 +298,7 @@ var provisionCmd = &cobra.Command{
 		image := provisionConfig.GetString(ImageName)
 		databaseType := provisionConfig.GetString(DatabaseTypeName)
 		databaseName := provisionConfig.GetString(DatabaseNameName)
+		databaseAdmin := provisionConfig.GetString(DatabaseAdminName)
 		siteName := provisionConfig.GetString(SiteName)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
@@ -261,21 +309,25 @@ var provisionCmd = &cobra.Command{
 			errLog.Print("unable to authenticate: ", err)
 			return
 		}
-		status.Print("tenant selected: ", provisionConfig.GetString(TenantIDName))
-		status.Print("subscription selected: ", subscriptionID)
-		status.Println("template selected: ", templateLocation)
-		status.Println("db-type selected: ", databaseType)
-		status.Println("db-name selected: ", databaseName)
-		status.Println("image selected: ", image)
+		status.Print(TenantIDName+" selected: ", provisionConfig.GetString(TenantIDName))
+		status.Print(SubscriptionName+" selected: ", subscriptionID)
+		status.Println(TemplateName+" selected: ", templateLocation)
+		status.Println(DatabaseTypeName+" selected: ", databaseType)
+		status.Println(DatabaseNameName+" selected: ", databaseName)
+		status.Println(DatabaseAdminName+" selected: ", databaseAdmin)
+
+		if usingDB, dbPassword := !strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
+			provisionConfig.Set(DatabasePasswordName, randname.GenerateWithPrefix("MSFT+Buffalo-", 20))
+			status.Println("generated database password")
+		} else if usingDB {
+			status.Println("using provided password")
+		}
+
+		status.Println(ImageName+" selected: ", image)
 
 		groups := resources.NewGroupsClient(subscriptionID)
 		groups.Authorizer = auth
-		userAgentBuilder := bytes.NewBufferString("buffalo-azure")
-		if version != "" {
-			userAgentBuilder.WriteRune('/')
-			userAgentBuilder.WriteString(version)
-		}
-		groups.AddToUserAgent(userAgentBuilder.String())
+		groups.AddToUserAgent(userAgent)
 
 		// Assert the presence of the specified Resource Group
 		rgName := provisionConfig.GetString(ResoureGroupName)
@@ -291,18 +343,16 @@ var provisionCmd = &cobra.Command{
 		}
 		status.Println("site name selected: ", siteName)
 
-		// Provision the necessary assets.
-		deployments := resources.NewDeploymentsClient(subscriptionID)
-		deployments.Authorizer = auth
-		deployments.AddToUserAgent(userAgentBuilder.String())
+		pLink := portalLink(subscriptionID, rgName)
 
-		params := NewDeploymentParameters()
-		params.Parameters["name"] = DeploymentParameter{siteName}
-		params.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
-		params.Parameters["databaseName"] = DeploymentParameter{databaseName}
-		params.Parameters["imageName"] = DeploymentParameter{image}
-		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{"buffaloAdmin"}
-		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{"password123"}
+		// Provision the necessary assets.
+
+		deployParams.Parameters["name"] = DeploymentParameter{siteName}
+		deployParams.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
+		deployParams.Parameters["databaseName"] = DeploymentParameter{databaseName}
+		deployParams.Parameters["imageName"] = DeploymentParameter{image}
+		deployParams.Parameters["databaseAdministratorLogin"] = DeploymentParameter{databaseAdmin}
+		deployParams.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{provisionConfig.GetString(DatabasePasswordName)}
 
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
@@ -310,36 +360,65 @@ var provisionCmd = &cobra.Command{
 			return
 		}
 
-		template.Parameters = params.Parameters
+		template.Parameters = deployParams.Parameters
 		template.Mode = resources.Incremental
 
-		status.Println("beginning deployment")
-		fut, err := deployments.CreateOrUpdate(ctx, rgName, siteDefaultPrefix, resources.Deployment{
-			Properties: template,
-		})
-
-		if err != nil {
-			errLog.Print("unable to start deployment: ", err)
-			return
+		deploymentResults := make(chan error)
+		if provisionConfig.GetBool(SkipDeploymentName) {
+			close(deploymentResults)
+		} else {
+			go func(errOut chan<- error) {
+				defer close(errOut)
+				status.Println("beginning deployment")
+				if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err == nil {
+					fmt.Println("Check on your new Resource Group in the Azure Portal: ", pLink)
+					fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
+				} else {
+					errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", pLink, err)
+					errOut <- err
+					return
+				}
+				status.Print("finished deployment")
+			}(deploymentResults)
 		}
 
-		portalLink := bytes.NewBufferString("https://portal.azure.com/#resource/subscriptions/")
-		portalLink.WriteString(subscriptionID)
-		portalLink.WriteString("/resourceGroups/")
-		portalLink.WriteString(rgName)
-		portalLink.WriteString("/overview")
-
-		err = fut.WaitForCompletion(ctx, deployments.Client)
-		if err != nil {
-			errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\n", portalLink.String())
-			return
+		doCache := func(ctx context.Context, errOut chan<- error, contents interface{}, location, flavor string) {
+			defer close(errOut)
+			status.Printf("caching %s", flavor)
+			err := cache(ctx, contents, location)
+			if err != nil {
+				errLog.Printf("unable to cache file %s because: %v", location, err)
+				errOut <- err
+				return
+			}
+			status.Printf("%s cached", flavor)
 		}
 
-		fmt.Println("Check on your new Resource Group in the Azure Portal: ", portalLink.String())
-		fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
+		templateSaveResults, parameterSaveResults := make(chan error), make(chan error)
+		if provisionConfig.GetBool(SkipTemplateCacheName) {
+			close(templateSaveResults)
+		} else {
+			go doCache(ctx, templateSaveResults, template.Template, TemplateDefault, "template")
+		}
 
-		status.Print("finished deployment")
-		exitStatus = 0
+		if provisionConfig.GetBool(SkipParameterCacheName) {
+			close(parameterSaveResults)
+		} else {
+			go doCache(ctx, parameterSaveResults, stripDBPassword(deployParams), TemplateParametersDefault, "parameters")
+		}
+
+		waitOnResults := func(ctx context.Context, results <-chan error) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case err := <-results:
+				return err
+			}
+		}
+
+		waitOnResults(ctx, templateSaveResults)
+		waitOnResults(ctx, parameterSaveResults)
+		waitOnResults(ctx, deploymentResults)
 	},
 	Args: func(cmd *cobra.Command, args []string) error {
 		if provisionConfig.GetString(SubscriptionName) == "" {
@@ -355,6 +434,27 @@ var provisionCmd = &cobra.Command{
 			return errors.New("--client-id and --client-secret must be specified together or not at all")
 		}
 
+		statusWriter := ioutil.Discard
+		if provisionConfig.GetBool(VerboseName) {
+			statusWriter = os.Stdout
+		}
+		status = newFormattedLog(statusWriter, "information")
+
+		if provisionConfig.GetString(TemplateName) == TemplateDefault {
+			provisionConfig.Set(SkipTemplateCacheName, true)
+		}
+
+		if provisionConfig.GetString(LocationName) == LocationDefaultText {
+			provisionConfig.SetDefault(LocationName, LocationDefault)
+		}
+
+		var err error
+		deployParams, err = loadFromParameterFile(provisionConfig.GetString(TemplateParametersName))
+		if err != nil {
+			return fmt.Errorf("unable to load parameters file: %v", err)
+		}
+		setDefaults(provisionConfig, deployParams)
+
 		nameGenerator := randname.Prefixed{
 			Prefix:     siteDefaultPrefix + "-",
 			Len:        10,
@@ -369,20 +469,45 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.Set(ResoureGroupName, provisionConfig.GetString(SiteName))
 		}
 
-		var err error
 		environment, err = azure.EnvironmentFromName(provisionConfig.GetString(EnvironmentName))
 		if err != nil {
 			return err
 		}
 
-		statusWriter := ioutil.Discard
-		if provisionConfig.GetBool(VerboseName) {
-			statusWriter = os.Stdout
-		}
-		status = newFormattedLog(statusWriter, "information")
-
 		return nil
 	},
+}
+
+func stripDBPassword(original *DeploymentParameters) (copy *DeploymentParameters) {
+	copy = NewDeploymentParameters()
+	copy.Parameters = make(map[string]DeploymentParameter, len(original.Parameters))
+	copy.ContentVersion = original.ContentVersion
+	copy.Schema = original.Schema
+
+	for k, v := range original.Parameters {
+		copy.Parameters[k] = v
+	}
+	delete(copy.Parameters, "databaseAdministratorLoginPassword")
+	return copy
+}
+
+func cache(ctx context.Context, contents interface{}, outputName string) error {
+	if handle, err := os.Create(outputName); err == nil {
+		defer handle.Close()
+
+		enc := json.NewEncoder(handle)
+		err = enc.Encode(contents)
+		if err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
+	return nil
+}
+
+func portalLink(subscriptionID, rgName string) string {
+	return fmt.Sprintf("https://portal.azure.com/#resource/subscriptions/%s/resourceGroups/%s/overview", subscriptionID, rgName)
 }
 
 // insertResourceGroup checks for a Resource Groups's existence, if it is not found it creates that resource group. If
@@ -488,6 +613,20 @@ func getDatabaseFlavor(buffaloRoot, profile string) (string, string, error) {
 	}
 
 	return conn.Dialect.Name(), conn.Dialect.Details().Database, nil
+}
+
+func doDeployment(ctx context.Context, authorizer autorest.Authorizer, subscriptionID, resourceGroup string, properties *resources.DeploymentProperties) (err error) {
+	deployments := resources.NewDeploymentsClient(subscriptionID)
+	deployments.Authorizer = authorizer
+	deployments.AddToUserAgent(userAgent)
+
+	fut, err := deployments.CreateOrUpdate(ctx, resourceGroup, siteDefaultPrefix, resources.Deployment{Properties: properties})
+	if err != nil {
+		return
+	}
+
+	err = fut.WaitForCompletion(ctx, deployments.Client)
+	return
 }
 
 func getDeploymentTemplate(ctx context.Context, raw string) (*resources.DeploymentProperties, error) {
@@ -663,6 +802,45 @@ func newFormattedLog(output io.Writer, identifier string) *log.Logger {
 	return log.New(output, fmt.Sprintf("[%s] ", strings.ToUpper(identifier)[:identLen]), log.Ldate|log.Ltime)
 }
 
+func setDefaults(conf *viper.Viper, params *DeploymentParameters) {
+	if name, ok := params.Parameters["name"]; ok {
+		conf.SetDefault(SiteName, name.Value)
+	}
+
+	if database, ok := params.Parameters["database"]; ok {
+		conf.SetDefault(DatabaseTypeName, database.Value)
+	}
+
+	if databaseName, ok := params.Parameters["databaseName"]; ok {
+		conf.SetDefault(DatabaseNameName, databaseName.Value)
+	}
+
+	if image, ok := params.Parameters["imageName"]; ok {
+		conf.SetDefault(ImageName, image.Value)
+	}
+
+	if dbAdmin, ok := params.Parameters["databaseAdministratorLogin"]; ok {
+		conf.SetDefault(DatabaseAdminName, dbAdmin.Value)
+	}
+}
+
+func loadFromParameterFile(paramFile string) (*DeploymentParameters, error) {
+	loaded := NewDeploymentParameters()
+	if _, err := os.Stat(TemplateParametersDefault); err == nil {
+		provisionConfig.SetDefault(TemplateParametersName, TemplateParametersDefault)
+		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
+			dec := json.NewDecoder(handle)
+			err = dec.Decode(loaded)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		return nil, err
+	}
+	return loaded, nil
+}
+
 func init() {
 	var debugWriter io.Writer
 	if debug == "" {
@@ -693,6 +871,19 @@ func init() {
 
 	provisionConfig.SetDefault(ProfileName, "development")
 
+	if dialect, dbname, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
+		provisionConfig.SetDefault(DatabaseTypeName, dialect)
+		provisionConfig.SetDefault(DatabaseNameName, dbname)
+	} else {
+		provisionConfig.SetDefault(DatabaseTypeName, "none")
+		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
+	}
+
+	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
+	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
+	provisionConfig.SetDefault(LocationName, LocationDefaultText)
+	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
+
 	var sanitizedClientSecret string
 	if rawSecret := provisionConfig.GetString(ClientSecretName); rawSecret != "" {
 		const safeCharCount = 10
@@ -709,20 +900,14 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
-	if dialect, dbname, err := getDatabaseFlavor(".", provisionConfig.GetString(ProfileName)); err == nil {
-		provisionConfig.SetDefault(DatabaseTypeName, dialect)
-		provisionConfig.SetDefault(DatabaseNameName, dbname)
+	if p, err := loadFromParameterFile(TemplateParametersDefault); err == nil {
+		setDefaults(provisionConfig, p)
+		deployParams = p
 	} else {
-		provisionConfig.SetDefault(DatabaseTypeName, "none")
-		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
+		deployParams = NewDeploymentParameters()
 	}
 
-	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
-	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
-	provisionConfig.SetDefault(LocationName, LocationDefault)
-	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
-
-	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
+	provisionCmd.Flags().StringP(ImageName, ImageShorthand, provisionConfig.GetString(ImageName), imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
 	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), subscriptionUsage)
 	provisionCmd.Flags().String(ClientIDName, provisionConfig.GetString(ClientIDName), clientIDUsage)
@@ -736,7 +921,19 @@ func init() {
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
 	provisionCmd.Flags().StringP(SiteName, SiteShorthand, provisionConfig.GetString(SiteName), siteUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
-	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
+	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
+	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
+	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
+	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, DatabasePasswordDefault, databasePasswordUsage)
+	provisionCmd.Flags().String(DatabaseAdminName, provisionConfig.GetString(DatabaseAdminName), databaseAdminUsage)
+	provisionCmd.Flags().StringP(TemplateParametersName, TemplateParametersShorthand, provisionConfig.GetString(TemplateParametersName), templateParametersUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
+
+	userAgentBuilder := bytes.NewBufferString("buffalo-azure")
+	if version != "" {
+		userAgentBuilder.WriteRune('/')
+		userAgentBuilder.WriteString(version)
+	}
+	userAgent = userAgentBuilder.String()
 }
