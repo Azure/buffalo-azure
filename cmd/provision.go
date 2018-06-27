@@ -448,13 +448,14 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.SetDefault(LocationName, LocationDefault)
 		}
 
-		var err error
 		paramFile := provisionConfig.GetString(TemplateParametersName)
-		deployParams, err = loadFromParameterFile(paramFile)
-		if err != nil && paramFile != TemplateParametersDefault {
+		p, err := loadFromParameterFile(paramFile)
+		if err == nil {
+			setDefaults(provisionConfig, p)
+			deployParams = p
+		} else if paramFile != TemplateParametersDefault {
 			return fmt.Errorf("unable to load parameters file: %v", err)
 		}
-		setDefaults(provisionConfig, deployParams)
 
 		nameGenerator := randname.Prefixed{
 			Prefix:     siteDefaultPrefix + "-",
