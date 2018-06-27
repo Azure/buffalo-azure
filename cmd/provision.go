@@ -354,8 +354,6 @@ var provisionCmd = &cobra.Command{
 		deployParams.Parameters["databaseAdministratorLogin"] = DeploymentParameter{databaseAdmin}
 		deployParams.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{provisionConfig.GetString(DatabasePasswordName)}
 
-		debugLog.Print("Deployment Parameters: %#v", deployParams.Parameters)
-
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
 			errLog.Print("unable to fetch template: ", err)
@@ -902,8 +900,12 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
-	deployParams, _ = loadFromParameterFile(TemplateParametersDefault)
-	setDefaults(provisionConfig, deployParams)
+	if p, err := loadFromParameterFile(TemplateParametersDefault); err == nil {
+		setDefaults(provisionConfig, p)
+		deployParams = p
+	} else {
+		deployParams = NewDeploymentParameters()
+	}
 
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, provisionConfig.GetString(ImageName), imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
