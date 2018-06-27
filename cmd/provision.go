@@ -76,10 +76,11 @@ const (
 // These constants define a parameter which allows control over the Azure Region that should be used when creating a
 // resource group. If the specified resource group already exists, its location is used and this parameter is discarded.
 const (
-	LocationName      = "location"
-	LocationShorthand = "l"
-	LocationDefault   = "centralus"
-	locationUsage     = "The Azure Region that should be used when creating a resource group."
+	LocationName        = "location"
+	LocationShorthand   = "l"
+	LocationDefault     = "centralus"
+	LocationDefaultText = "<resource group location>, or " + LocationDefault
+	locationUsage       = "The Azure Region that should be used when creating a resource group."
 )
 
 // These constants define a parameter that allows control of the type of database to be provisioned. This is largely an
@@ -445,6 +446,17 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.Set(SkipTemplateCacheName, true)
 		}
 
+		if provisionConfig.GetString(LocationName) == LocationDefaultText {
+			provisionConfig.SetDefault(LocationName, LocationDefault)
+		}
+
+		var err error
+		deployParams, err = loadFromParameterFile(provisionConfig.GetString(TemplateParametersName))
+		if err != nil {
+			return fmt.Errorf("unable to load parameters file: %v", err)
+		}
+		setDefaults(provisionConfig, deployParams)
+
 		nameGenerator := randname.Prefixed{
 			Prefix:     siteDefaultPrefix + "-",
 			Len:        10,
@@ -459,7 +471,6 @@ var provisionCmd = &cobra.Command{
 			provisionConfig.Set(ResoureGroupName, provisionConfig.GetString(SiteName))
 		}
 
-		var err error
 		environment, err = azure.EnvironmentFromName(provisionConfig.GetString(EnvironmentName))
 		if err != nil {
 			return err
@@ -793,6 +804,45 @@ func newFormattedLog(output io.Writer, identifier string) *log.Logger {
 	return log.New(output, fmt.Sprintf("[%s] ", strings.ToUpper(identifier)[:identLen]), log.Ldate|log.Ltime)
 }
 
+func setDefaults(conf *viper.Viper, params *DeploymentParameters) {
+	if name, ok := params.Parameters["name"]; ok {
+		conf.SetDefault(SiteName, name.Value)
+	}
+
+	if database, ok := params.Parameters["database"]; ok {
+		conf.SetDefault(DatabaseTypeName, database.Value)
+	}
+
+	if databaseName, ok := params.Parameters["databaseName"]; ok {
+		conf.SetDefault(DatabaseNameName, databaseName.Value)
+	}
+
+	if image, ok := params.Parameters["imageName"]; ok {
+		conf.SetDefault(ImageName, image.Value)
+	}
+
+	if dbAdmin, ok := params.Parameters["databaseAdministratorLogin"]; ok {
+		conf.SetDefault(DatabaseAdminName, dbAdmin.Value)
+	}
+}
+
+func loadFromParameterFile(paramFile string) (*DeploymentParameters, error) {
+	loaded := NewDeploymentParameters()
+	if _, err := os.Stat(TemplateParametersDefault); err == nil {
+		provisionConfig.SetDefault(TemplateParametersName, TemplateParametersDefault)
+		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
+			dec := json.NewDecoder(handle)
+			err = dec.Decode(loaded)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		return nil, err
+	}
+	return loaded, nil
+}
+
 func init() {
 	var debugWriter io.Writer
 	if debug == "" {
@@ -833,7 +883,7 @@ func init() {
 
 	provisionConfig.SetDefault(EnvironmentName, EnvironmentDefault)
 	provisionConfig.SetDefault(ResoureGroupName, ResourceGroupDefault)
-	provisionConfig.SetDefault(LocationName, LocationDefault)
+	provisionConfig.SetDefault(LocationName, LocationDefaultText)
 	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
 
 	var sanitizedClientSecret string
@@ -852,39 +902,10 @@ func init() {
 		provisionConfig.SetDefault(TemplateName, TemplateDefaultLink)
 	}
 
-	deployParams = NewDeploymentParameters()
-	if _, err := os.Stat(TemplateParametersDefault); err == nil {
-		provisionConfig.SetDefault(TemplateParametersDefault, TemplateParametersDefault)
-		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
-			dec := json.NewDecoder(handle)
-			err = dec.Decode(deployParams)
-			if err != nil {
-				errLog.Printf("parameters file in invalid format: %v", err)
-			}
-		}
+	deployParams, _ = loadFromParameterFile(TemplateParametersDefault)
+	setDefaults(provisionConfig, deployParams)
 
-		if name, ok := deployParams.Parameters["name"]; ok {
-			provisionConfig.SetDefault(SiteName, name)
-		}
-
-		if database, ok := deployParams.Parameters["database"]; ok {
-			provisionConfig.SetDefault(DatabaseTypeName, database)
-		}
-
-		if databaseName, ok := deployParams.Parameters["databaseName"]; ok {
-			provisionConfig.SetDefault(DatabaseNameName, databaseName)
-		}
-
-		if image, ok := deployParams.Parameters["imageName"]; ok {
-			provisionConfig.SetDefault(ImageName, image)
-		}
-
-		if dbAdmin, ok := deployParams.Parameters["databaseAdministratorLogin"]; ok {
-			provisionConfig.SetDefault(DatabaseAdminName, dbAdmin)
-		}
-	}
-
-	provisionCmd.Flags().StringP(ImageName, ImageShorthand, ImageDefault, imageUsage)
+	provisionCmd.Flags().StringP(ImageName, ImageShorthand, provisionConfig.GetString(ImageName), imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
 	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), subscriptionUsage)
 	provisionCmd.Flags().String(ClientIDName, provisionConfig.GetString(ClientIDName), clientIDUsage)
@@ -902,7 +923,7 @@ func init() {
 	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
 	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
 	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, DatabasePasswordDefault, databasePasswordUsage)
-	provisionCmd.Flags().String(DatabaseAdminName, DatabaseAdminDefault, databaseAdminUsage)
+	provisionCmd.Flags().String(DatabaseAdminName, provisionConfig.GetString(DatabaseAdminName), databaseAdminUsage)
 	provisionCmd.Flags().StringP(TemplateParametersName, TemplateParametersShorthand, provisionConfig.GetString(TemplateParametersName), templateParametersUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
