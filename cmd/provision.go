@@ -103,6 +103,23 @@ const (
 	databaseNameUsage = "The name of the database to be connected to by the Buffalo application once its deployed."
 )
 
+// These constants defeine a parameter which controls the password of the
+const (
+	DatabaseAdminName    = "db-admin"
+	DatabaseAdminDefault = "buffaloAdmin"
+	databaseAdminUsage   = "The user handle of the administratr account "
+)
+
+// These constants define a parameter which controls the password of the database provisioned. For marginal security,
+// it is randomly generated each time `buffalo azure provision` is run. It will be visibile in the "connection strings"
+// of your App Service.
+const (
+	DatabasePasswordName      = "db-password"
+	DatabasePasswordShorthand = "w"
+	DatabasePasswordDefault   = "<randomly generated>"
+	databasePasswordUsage     = "The administrator password for the database created. It is recommended you read this from a file instead of typing it in from your terminal."
+)
+
 // These constants define a parameter which allows control over the particular Azure cloud which should be used for
 // deployment.
 // Some examples of Azure environments by name include:
@@ -278,6 +295,7 @@ var provisionCmd = &cobra.Command{
 		image := provisionConfig.GetString(ImageName)
 		databaseType := provisionConfig.GetString(DatabaseTypeName)
 		databaseName := provisionConfig.GetString(DatabaseNameName)
+		databaseAdmin := provisionConfig.GetString(DatabaseAdminName)
 		siteName := provisionConfig.GetString(SiteName)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
@@ -293,6 +311,15 @@ var provisionCmd = &cobra.Command{
 		status.Println(TemplateName+" selected: ", templateLocation)
 		status.Println(DatabaseTypeName+" selected: ", databaseType)
 		status.Println(DatabaseNameName+" selected: ", databaseName)
+		status.Println(DatabaseAdminName+" selected: ", databaseAdmin)
+
+		if usingDB, dbPassword := strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
+			provisionConfig.Set(DatabasePasswordName, randname.GenerateWithPrefix("MSFT+Buffalo-", 20))
+			status.Println("generated database password")
+		} else if usingDB {
+			status.Println("using provided password")
+		}
+
 		status.Println(ImageName+" selected: ", image)
 
 		groups := resources.NewGroupsClient(subscriptionID)
@@ -313,11 +340,7 @@ var provisionCmd = &cobra.Command{
 		}
 		status.Println("site name selected: ", siteName)
 
-		portalLink := bytes.NewBufferString("https://portal.azure.com/#resource/subscriptions/")
-		portalLink.WriteString(subscriptionID)
-		portalLink.WriteString("/resourceGroups/")
-		portalLink.WriteString(rgName)
-		portalLink.WriteString("/overview")
+		pLink := portalLink(subscriptionID, rgName)
 
 		// Provision the necessary assets.
 
@@ -326,8 +349,8 @@ var provisionCmd = &cobra.Command{
 		params.Parameters["database"] = DeploymentParameter{strings.ToLower(databaseType)}
 		params.Parameters["databaseName"] = DeploymentParameter{databaseName}
 		params.Parameters["imageName"] = DeploymentParameter{image}
-		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{"buffaloAdmin"}
-		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{"password123"}
+		params.Parameters["databaseAdministratorLogin"] = DeploymentParameter{databaseAdmin}
+		params.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{provisionConfig.GetString(DatabasePasswordName)}
 
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
@@ -346,10 +369,10 @@ var provisionCmd = &cobra.Command{
 				defer close(errOut)
 				status.Println("beginning deployment")
 				if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err == nil {
-					fmt.Println("Check on your new Resource Group in the Azure Portal: ", portalLink.String())
+					fmt.Println("Check on your new Resource Group in the Azure Portal: ", pLink)
 					fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
 				} else {
-					errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", portalLink.String(), err)
+					errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", pLink, err)
 					errOut <- err
 					return
 				}
@@ -409,6 +432,12 @@ var provisionCmd = &cobra.Command{
 			return errors.New("--client-id and --client-secret must be specified together or not at all")
 		}
 
+		statusWriter := ioutil.Discard
+		if provisionConfig.GetBool(VerboseName) {
+			statusWriter = os.Stdout
+		}
+		status = newFormattedLog(statusWriter, "information")
+
 		if provisionConfig.GetString(TemplateName) == TemplateDefault {
 			provisionConfig.Set(SkipTemplateCacheName, true)
 		}
@@ -433,12 +462,6 @@ var provisionCmd = &cobra.Command{
 			return err
 		}
 
-		statusWriter := ioutil.Discard
-		if provisionConfig.GetBool(VerboseName) {
-			statusWriter = os.Stdout
-		}
-		status = newFormattedLog(statusWriter, "information")
-
 		return nil
 	},
 }
@@ -456,6 +479,10 @@ func cache(ctx context.Context, contents interface{}, outputName string) error {
 		return err
 	}
 	return nil
+}
+
+func portalLink(subscriptionID, rgName string) string {
+	return fmt.Sprintf("https://portal.azure.com/#resource/subscriptions/%s/resourceGroups/%s/overview", subscriptionID, rgName)
 }
 
 // insertResourceGroup checks for a Resource Groups's existence, if it is not found it creates that resource group. If
@@ -826,6 +853,8 @@ func init() {
 	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
 	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
 	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
+	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, DatabasePasswordDefault, databasePasswordUsage)
+	provisionCmd.Flags().String(DatabaseAdminName, DatabaseAdminDefault, databaseAdminUsage)
 	//provisionCmd.Flags().StringP(ProfileName, ProfileShorthand, provisionConfig.GetString(ProfileName), profileUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
