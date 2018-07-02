@@ -42,6 +42,7 @@ import (
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/pop"
+	"github.com/joho/godotenv"
 	"github.com/marstr/randname"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -119,6 +120,7 @@ const (
 	DatabasePasswordShorthand = "w"
 	DatabasePasswordDefault   = "<randomly generated>"
 	databasePasswordUsage     = "The administrator password for the database created. It is recommended you read this from a file instead of typing it in from your terminal."
+	DatabasePasswordEnvVar    = "BUFFALO_AZURE_DATABASE_PASSWORD"
 )
 
 // These constants define a parameter which allows control over the particular Azure cloud which should be used for
@@ -317,8 +319,20 @@ var provisionCmd = &cobra.Command{
 		status.Println(DatabaseAdminName+" selected: ", databaseAdmin)
 
 		if usingDB, dbPassword := !strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
-			provisionConfig.Set(DatabasePasswordName, randname.GenerateWithPrefix("MSFT+Buffalo-", 20))
+			newPass := randname.GenerateWithPrefix("MSFT+Buffalo-", 20)
+			provisionConfig.Set(DatabasePasswordName, newPass)
 			status.Println("generated database password")
+			var envMap map[string]string
+			const envFileLoc = "./.env"
+			if envMap, err = godotenv.Read(envFileLoc); err != nil {
+				envMap = make(map[string]string, 1)
+			}
+			envMap[DatabasePasswordEnvVar] = newPass
+			if err := godotenv.Write(envMap, envFileLoc); err == nil {
+				status.Printf("wrote database password to %q", envFileLoc)
+			} else {
+				errLog.Printf("unable to write database password to %q", envFileLoc)
+			}
 		} else if usingDB {
 			status.Println("using provided password")
 		}
@@ -854,6 +868,8 @@ func init() {
 
 	azureCmd.AddCommand(provisionCmd)
 
+	godotenv.Load()
+
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
@@ -870,6 +886,7 @@ func init() {
 	provisionConfig.BindEnv(TenantIDName, "AZURE_TENANT_ID", "AZ_TENANT_ID")
 	provisionConfig.BindEnv(EnvironmentName, "AZURE_ENVIRONMENT", "AZ_ENVIRONMENT")
 	provisionConfig.BindEnv(ProfileName, "GO_ENV")
+	provisionConfig.BindEnv(DatabasePasswordName, DatabasePasswordEnvVar, "BUFFALO_AZURE_DB_PASSWORD", "BUFFALO_AZ_DATABASE_PASSWORD", "BUFFALO_AZ_DB_PASSWORD")
 
 	provisionConfig.SetDefault(ProfileName, "development")
 
@@ -879,6 +896,14 @@ func init() {
 	} else {
 		provisionConfig.SetDefault(DatabaseTypeName, "none")
 		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
+	}
+
+	var dbPassText string
+	if dbpass := provisionConfig.GetString(DatabasePasswordName); dbpass == "" {
+		dbPassText = DatabasePasswordDefault
+		provisionConfig.SetDefault(DatabasePasswordName, DatabasePasswordDefault)
+	} else {
+		dbPassText = "[redacted]"
 	}
 
 	provisionConfig.SetDefault(DatabaseAdminName, DatabaseAdminDefault)
@@ -929,7 +954,7 @@ func init() {
 	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
 	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
 	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
-	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, DatabasePasswordDefault, databasePasswordUsage)
+	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, dbPassText, databasePasswordUsage)
 	provisionCmd.Flags().String(DatabaseAdminName, provisionConfig.GetString(DatabaseAdminName), databaseAdminUsage)
 	provisionCmd.Flags().StringP(TemplateParametersName, TemplateParametersShorthand, provisionConfig.GetString(TemplateParametersName), templateParametersUsage)
 

@@ -15,8 +15,8 @@
     "services/resources/mgmt/2017-05-10/resources",
     "version"
   ]
-  revision = "cd93ccfe0395e70031704ca68f14606588eec120"
-  version = "v17.3.0"
+  revision = "7971189ecf5a584b9211f2527737f94bb979644e"
+  version = "v17.4.0"
 
 [[projects]]
   name = "github.com/Azure/go-autorest"
@@ -28,8 +28,8 @@
     "autorest/to",
     "autorest/validation"
   ]
-  revision = "76796dcb80ab6491bf22e344402023c081a7a282"
-  version = "v10.11.1"
+  revision = "1f7cd6cfe0adea687ad44a512dfe76140f804318"
+  version = "v10.12.0"
 
 [[projects]]
   branch = "master"
@@ -90,8 +90,17 @@
 [[projects]]
   name = "github.com/gobuffalo/envy"
   packages = ["."]
-  revision = "ef60bfc50c8f92d1ee64674d8ce7a48f1f67625e"
-  version = "v1.6.2"
+  revision = "2d0f467653f3d961ce9ada4d32a230bdcb3bfe11"
+  version = "v1.6.3"
+
+[[projects]]
+  name = "github.com/gobuffalo/fizz"
+  packages = [
+    ".",
+    "translators"
+  ]
+  revision = "25461ee937655cd1136523f6653d5bd15343cc48"
+  version = "v1.0.1"
 
 [[projects]]
   name = "github.com/gobuffalo/makr"
@@ -114,8 +123,8 @@
     "parser",
     "token"
   ]
-  revision = "b0b0a05f963a529b49d835f868fa1e2b92f4b144"
-  version = "v3.7.4"
+  revision = "2ec029f415ed9a8a1448a5bb389d79084d606035"
+  version = "v3.7.7"
 
 [[projects]]
   name = "github.com/gobuffalo/pop"
@@ -123,12 +132,11 @@
     ".",
     "associations",
     "columns",
-    "fizz",
-    "fizz/translators",
+    "fix",
     "nulls"
   ]
-  revision = "9985012f32f5e36b1a10e9191ee460daac4a9bc7"
-  version = "v4.5.9"
+  revision = "66130dbcd030ea900e35e45e03dd1a59577d2e99"
+  version = "v4.5.12"
 
 [[projects]]
   name = "github.com/gobuffalo/tags"
@@ -137,8 +145,8 @@
     "form",
     "form/bootstrap"
   ]
-  revision = "82cd7696c84aba829b74e81814ff489b64e7b56a"
-  version = "v2.0.5"
+  revision = "96c7cdfcadcb28eb1b42b9080ba7f93936ffc5c5"
+  version = "v2.0.7"
 
 [[projects]]
   name = "github.com/gobuffalo/uuid"
@@ -221,7 +229,7 @@
     ".",
     "reflectx"
   ]
-  revision = "2aeb6a910c2b94f2d5eb53d9895d80e27264ec41"
+  revision = "0dae4fefe7c0e190f7b5a78dac28a1c82cc8d849"
 
 [[projects]]
   name = "github.com/joho/godotenv"
@@ -245,7 +253,6 @@
   version = "v1.8.0"
 
 [[projects]]
-  branch = "master"
   name = "github.com/markbates/going"
   packages = [
     "defaults",
@@ -253,18 +260,19 @@
     "wait"
   ]
   revision = "0576708c56cea02331f864fe6e157ac7841923e4"
+  version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
   name = "github.com/markbates/grift"
   packages = ["grift"]
   revision = "76f93617a788d350124f749acb3790276a436cc0"
+  version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
   name = "github.com/markbates/inflect"
   packages = ["."]
   revision = "dd7de90c06bca70f18136e59dec2270c19a401e7"
+  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/markbates/refresh"
@@ -294,17 +302,6 @@
   revision = "48a63b6052f1f9373db9388a658da30c6ab53db1"
 
 [[projects]]
-  name = "github.com/mattn/anko"
-  packages = [
-    "ast",
-    "core",
-    "parser",
-    "vm"
-  ]
-  revision = "e9c5c0ca86cf129292c56ddbddc4fff027844d65"
-  version = "v0.0.4"
-
-[[projects]]
   name = "github.com/mattn/go-colorable"
   packages = ["."]
   revision = "167de6bfdfba052fa6b2d3664c8f5272e23c9072"
@@ -319,14 +316,14 @@
 [[projects]]
   name = "github.com/mattn/go-sqlite3"
   packages = ["."]
-  revision = "323a32be5a2421b8c7087225079c6c900ec397cd"
-  version = "v1.7.0"
+  revision = "25ecb14adfc7543176f7d85291ec7dba82c6f7e4"
+  version = "v1.9.0"
 
 [[projects]]
   branch = "master"
   name = "github.com/microcosm-cc/bluemonday"
   packages = ["."]
-  revision = "995366fdf961d03629cd17361bddd32745718e2c"
+  revision = "f0761eb8ed07c1cc892ef631b00c33463b9b6868"
 
 [[projects]]
   branch = "master"
@@ -494,7 +491,7 @@
     "blowfish",
     "ssh/terminal"
   ]
-  revision = "8ac0e0d97ce45cd83d1d7243c060cb8461dda5e9"
+  revision = "a49355c7e3f8fe157a85be2f77e6e269a0f89602"
 
 [[projects]]
   branch = "master"
@@ -504,7 +501,7 @@
     "html",
     "html/atom"
   ]
-  revision = "db08ff08e8622530d9ed3a0e8ac279f6d4c02196"
+  revision = "87b3feba568e144938625fc5d80ec92566c1a8fe"
 
 [[projects]]
   branch = "master"
@@ -519,7 +516,7 @@
     "unix",
     "windows"
   ]
-  revision = "bff228c7b664c5fce602223a05fb708fd8654986"
+  revision = "7138fd3d9dc8335c567ca206f4333fb75eb05d56"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -537,8 +534,8 @@
 [[projects]]
   name = "google.golang.org/appengine"
   packages = ["cloudsql"]
-  revision = "150dc57a1b433e64154302bdc40b6bb8aefa313a"
-  version = "v1.0.0"
+  revision = "b1f26356af11148e710935ed1ac8a7f5702c7612"
+  version = "v1.1.0"
 
 [[projects]]
   name = "gopkg.in/yaml.v2"
@@ -549,6 +546,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b735a8f4099268006777df3205705fac3423a7666a61f92eeba515d365aac5b7"
+  inputs-digest = "0ca276e99bfba052cf9d07bc5e408c494fce5cc8b82106feec5601f108cd5b4d"
   solver-name = "gps-cdcl"
   solver-version = 1
