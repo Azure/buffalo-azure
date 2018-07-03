@@ -257,8 +257,9 @@ const (
 
 // These constants define a parameter which toggles whether or not to save the template used for deployment to disk.
 const (
-	SkipTemplateCacheName  = "skip-template-cache"
-	skipTemplateCacheUsage = "After downloading the default template, do NOT save it in the working directory."
+	SkipTemplateCacheName      = "skip-template-cache"
+	SkipTemplateCacheShorthand = "z"
+	skipTemplateCacheUsage     = "After downloading the default template, do NOT save it in the working directory."
 )
 
 // These constants define a parameter which toggles whether or not to save the parameters used for deployment to disk.
@@ -306,10 +307,15 @@ var provisionCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
 
-		auth, err := getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
-		if err != nil {
-			errLog.Print("unable to authenticate: ", err)
-			return
+		var err error
+		var auth autorest.Authorizer
+
+		if !provisionConfig.GetBool(SkipDeploymentName) {
+			auth, err = getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
+			if err != nil {
+				errLog.Print("unable to authenticate: ", err)
+				return
+			}
 		}
 		status.Print(TenantIDName+" selected: ", provisionConfig.GetString(TenantIDName))
 		status.Print(SubscriptionName+" selected: ", subscriptionID)
@@ -339,26 +345,6 @@ var provisionCmd = &cobra.Command{
 
 		status.Println(ImageName+" selected: ", image)
 
-		groups := resources.NewGroupsClient(subscriptionID)
-		groups.Authorizer = auth
-		groups.AddToUserAgent(userAgent)
-
-		// Assert the presence of the specified Resource Group
-		rgName := provisionConfig.GetString(ResoureGroupName)
-		created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
-		if err != nil {
-			errLog.Printf("unable to fetch or create resource group %s: %v\n", rgName, err)
-			return
-		}
-		if created {
-			status.Println("created resource group: ", rgName)
-		} else {
-			status.Println("found resource group: ", rgName)
-		}
-		status.Println("site name selected: ", siteName)
-
-		pLink := portalLink(subscriptionID, rgName)
-
 		// Provision the necessary assets.
 
 		deployParams.Parameters["name"] = DeploymentParameter{siteName}
@@ -383,6 +369,27 @@ var provisionCmd = &cobra.Command{
 		} else {
 			go func(errOut chan<- error) {
 				defer close(errOut)
+				groups := resources.NewGroupsClient(subscriptionID)
+				groups.Authorizer = auth
+				groups.AddToUserAgent(userAgent)
+
+				// Assert the presence of the specified Resource Group
+				rgName := provisionConfig.GetString(ResoureGroupName)
+				created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
+				if err != nil {
+					errLog.Printf("unable to fetch or create resource group %s: %v\n", rgName, err)
+					errOut <- err
+					return
+				}
+				if created {
+					status.Println("created resource group: ", rgName)
+				} else {
+					status.Println("found resource group: ", rgName)
+				}
+				status.Println("site name selected: ", siteName)
+
+				pLink := portalLink(subscriptionID, rgName)
+
 				status.Println("beginning deployment")
 				if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err == nil {
 					fmt.Println("Check on your new Resource Group in the Azure Portal: ", pLink)
@@ -512,6 +519,7 @@ func cache(ctx context.Context, contents interface{}, outputName string) error {
 		defer handle.Close()
 
 		enc := json.NewEncoder(handle)
+		enc.SetIndent("", "  ")
 		err = enc.Encode(contents)
 		if err != nil {
 			return err
@@ -951,7 +959,7 @@ func init() {
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
 	provisionCmd.Flags().StringP(SiteName, SiteShorthand, provisionConfig.GetString(SiteName), siteUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
-	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
+	provisionCmd.Flags().BoolP(SkipTemplateCacheName, SkipTemplateCacheShorthand, false, skipTemplateCacheUsage)
 	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
 	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
 	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, dbPassText, databasePasswordUsage)
