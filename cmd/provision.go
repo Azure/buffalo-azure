@@ -276,16 +276,19 @@ const (
 	skipDeploymentUsage     = "Do not create an Azure deployment, do just the meta tasks."
 )
 
+// These constants define a parameter which controls the Docker registry that will be searched for the image provided.
 const (
 	DockerRegistryURLName  = "docker-registry-url"
-	dockerRegistryUrlUsage = "The URL for a private Docker Registry containing the image definition."
+	dockerRegistryURLUsage = "The URL for a private Docker Registry containing the image definition."
 )
 
+// These constants define a parameter which allows the username to be set for Docker authentication.
 const (
 	DockerRegistryUsernameName  = "docker-registry-username"
 	dockerRegistryUsernameUsage = "The user handle to allow access to a private docker registry."
 )
 
+// These constants define a parameter which allows the password to be set for Docker authentication.
 const (
 	DockerRegistryPasswordName  = "docker-registry-password"
 	dockerRegistryPasswordUsage = "The user password to allow access to a private docker registry."
@@ -1026,7 +1029,7 @@ func init() {
 	provisionCmd.Flags().String(DatabaseAdminName, provisionConfig.GetString(DatabaseAdminName), databaseAdminUsage)
 	provisionCmd.Flags().StringP(TemplateParametersName, TemplateParametersShorthand, provisionConfig.GetString(TemplateParametersName), templateParametersUsage)
 	provisionCmd.Flags().String(DockerRegistryAccessName, provisionConfig.GetString(DockerRegistryAccessName), dockerRegistryAccessUsage)
-	provisionCmd.Flags().String(DockerRegistryURLName, provisionConfig.GetString(DockerRegistryURLName), dockerRegistryUrlUsage)
+	provisionCmd.Flags().String(DockerRegistryURLName, provisionConfig.GetString(DockerRegistryURLName), dockerRegistryURLUsage)
 	provisionCmd.Flags().String(DockerRegistryUsernameName, provisionConfig.GetString(DockerRegistryUsernameName), dockerRegistryUsernameUsage)
 	provisionCmd.Flags().String(DockerRegistryPasswordName, dockerPassText, dockerRegistryPasswordUsage)
 
