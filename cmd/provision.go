@@ -109,7 +109,7 @@ const (
 const (
 	DatabaseAdminName    = "db-admin"
 	DatabaseAdminDefault = "buffaloAdmin"
-	databaseAdminUsage   = "The user handle of the administratr account "
+	databaseAdminUsage   = "The user handle of the administrator account."
 )
 
 // These constants define a parameter which controls the password of the database provisioned. For marginal security,
@@ -308,7 +308,7 @@ const (
 const (
 	DockerRegistryAccessName    = "docker-registry-access"
 	DockerRegistryAccessDefault = DockerAccessPublic
-	dockerRegistryAccessUsage   = "Specifies whether the Docker registry targeted is" + DockerAccessPublic + " or " + DockerAccessPrivate
+	dockerRegistryAccessUsage   = "Specifies whether the Docker registry targeted is " + DockerAccessPublic + " or " + DockerAccessPrivate
 )
 
 var status *log.Logger
