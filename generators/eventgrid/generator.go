@@ -2,15 +2,23 @@ package eventgrid
 
 import (
 	"fmt"
+	"go/ast"
+	"go/importer"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/gobuffalo/buffalo/generators"
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/makr"
 	"github.com/markbates/inflect"
+
+	"github.com/Azure/buffalo-azure/generators/common"
 )
 
 //go:generate go run ./builder/builder.go -o ./static_templates.go ./templates
@@ -26,15 +34,24 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 	type TypeMapping struct {
 		Identifier string
 		inflect.Name
-		PackageSpecifier string
+		PkgPath string
+		PkgSpec common.PackageSpecifier
 	}
 	flatTypes := make([]TypeMapping, 0, len(types))
 
+	ib := common.NewImportBag()
+	ib.AddImport("encoding/json")
+	ib.AddImport("errors")
+	ib.AddImport("net/http")
+	ib.AddImportWithSpecifier("github.com/Azure/buffalo-azure/sdk/eventgrid", "eg")
+	ib.AddImport("github.com/gobuffalo/buffalo")
+
 	for i, n := range types {
 		flatTypes = append(flatTypes, TypeMapping{
-			Identifier:       i,
-			PackageSpecifier: path.Base(n.PkgPath()),
-			Name:             inflect.Name(n.Name()),
+			Identifier: i,
+			PkgPath:    n.PkgPath(),
+			PkgSpec:    ib.AddImport(common.PackagePath(n.PkgPath())),
+			Name:       inflect.Name(n.Name()),
 		})
 	}
 
@@ -60,6 +77,43 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 	d := make(makr.Data)
 	d["name"] = iName
 	d["types"] = flatTypes
+	d["imports"] = ib.List()
 
 	return g.Run(app.Root, d)
+}
+
+func existingImports(filepath string) (retval map[string]string, err error) {
+	fs := token.NewFileSet()
+	f, err := parser.ParseFile(fs, filepath, nil, parser.ImportsOnly)
+	if err != nil {
+		return
+	}
+
+	retval = make(map[string]string, len(f.Imports))
+	for _, imp := range f.Imports {
+		pkgPath := strings.Trim(imp.Path.Value, `"`)
+
+		if imp.Name == nil {
+			impFinder := importer.Default()
+			var pkg *types.Package
+
+			// This downcasting protects this code in the case that it is being called from a compiler
+			// other than the official Google Go compiler.
+			if cast, ok := impFinder.(types.ImporterFrom); ok {
+				pkg, err = cast.ImportFrom(pkgPath, "", 0)
+				if err != nil {
+					return
+				}
+				imp.Name = &ast.Ident{Name: pkg.Name()}
+			} else {
+				pkg, err = impFinder.Import(pkgPath)
+				if err != nil {
+					return
+				}
+				imp.Name = &ast.Ident{Name: pkg.Name()}
+			}
+		}
+		retval[imp.Name.Name] = pkgPath
+	}
+	return
 }

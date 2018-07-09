@@ -80,3 +80,35 @@ func TestGenerator_Run(t *testing.T) {
 		return
 	}
 }
+
+func Test_existingImports(t *testing.T) {
+	imps, err := existingImports("./testdata/main.go")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	expected := map[string]string{
+		"eventgrid": "github.com/Azure/buffalo-azure/sdk/eventgrid",
+		"egdp":      "github.com/Azure/azure-sdk-for-go/services/eventgrid/2018-01-01/eventgrid",
+		"fmt":       "fmt",
+	}
+
+	for k, v := range expected {
+		if val, ok := imps[k]; ok {
+			if val != v {
+				t.Logf("\ngot:\n\t%q\nwant:\n\t%q", val, v)
+				t.Fail()
+			}
+			delete(imps, k)
+		} else {
+			t.Logf("Missing import statement for package name %q", k)
+			t.Fail()
+		}
+	}
+
+	for k, v := range imps {
+		t.Logf("extra import found:\n\t%s %q", k, v)
+		t.Fail()
+	}
+}
