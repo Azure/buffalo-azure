@@ -42,6 +42,7 @@ import (
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/pop"
+	"github.com/joho/godotenv"
 	"github.com/marstr/randname"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -108,7 +109,7 @@ const (
 const (
 	DatabaseAdminName    = "db-admin"
 	DatabaseAdminDefault = "buffaloAdmin"
-	databaseAdminUsage   = "The user handle of the administratr account "
+	databaseAdminUsage   = "The user handle of the administrator account."
 )
 
 // These constants define a parameter which controls the password of the database provisioned. For marginal security,
@@ -119,6 +120,7 @@ const (
 	DatabasePasswordShorthand = "w"
 	DatabasePasswordDefault   = "<randomly generated>"
 	databasePasswordUsage     = "The administrator password for the database created. It is recommended you read this from a file instead of typing it in from your terminal."
+	DatabasePasswordEnvVar    = "BUFFALO_AZURE_DATABASE_PASSWORD"
 )
 
 // These constants define a parameter which allows control over the particular Azure cloud which should be used for
@@ -255,8 +257,9 @@ const (
 
 // These constants define a parameter which toggles whether or not to save the template used for deployment to disk.
 const (
-	SkipTemplateCacheName  = "skip-template-cache"
-	skipTemplateCacheUsage = "After downloading the default template, do NOT save it in the working directory."
+	SkipTemplateCacheName      = "skip-template-cache"
+	SkipTemplateCacheShorthand = "z"
+	skipTemplateCacheUsage     = "After downloading the default template, do NOT save it in the working directory."
 )
 
 // These constants define a parameter which toggles whether or not to save the parameters used for deployment to disk.
@@ -271,6 +274,41 @@ const (
 	SkipDeploymentName      = "skip-deployment"
 	SkipDeploymentShorthand = "x"
 	skipDeploymentUsage     = "Do not create an Azure deployment, do just the meta tasks."
+)
+
+// These constants define a parameter which controls the Docker registry that will be searched for the image provided.
+const (
+	DockerRegistryURLName  = "docker-registry-url"
+	dockerRegistryURLUsage = "The URL for a private Docker Registry containing the image definition."
+)
+
+// These constants define a parameter which allows the username to be set for Docker authentication.
+const (
+	DockerRegistryUsernameName  = "docker-registry-username"
+	dockerRegistryUsernameUsage = "The user handle to allow access to a private docker registry."
+)
+
+// These constants define a parameter which allows the password to be set for Docker authentication.
+const (
+	DockerRegistryPasswordName  = "docker-registry-password"
+	dockerRegistryPasswordUsage = "The user password to allow access to a private docker registry."
+)
+
+// DockerAccess is an enum that contains either "private" or "public"
+type DockerAccess string
+
+// All (currently) possible value of DockerAccess
+const (
+	DockerAccessPublic  = "public"
+	DockerAccessPrivate = "private"
+)
+
+// These constants define a parameter which informs buffalo-azure whether the registry is public or
+// private.
+const (
+	DockerRegistryAccessName    = "docker-registry-access"
+	DockerRegistryAccessDefault = DockerAccessPublic
+	dockerRegistryAccessUsage   = "Specifies whether the Docker registry targeted is " + DockerAccessPublic + " or " + DockerAccessPrivate
 )
 
 var status *log.Logger
@@ -304,10 +342,15 @@ var provisionCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
 
-		auth, err := getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
-		if err != nil {
-			errLog.Print("unable to authenticate: ", err)
-			return
+		var err error
+		var auth autorest.Authorizer
+
+		if !provisionConfig.GetBool(SkipDeploymentName) {
+			auth, err = getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
+			if err != nil {
+				errLog.Print("unable to authenticate: ", err)
+				return
+			}
 		}
 		status.Print(TenantIDName+" selected: ", provisionConfig.GetString(TenantIDName))
 		status.Print(SubscriptionName+" selected: ", subscriptionID)
@@ -317,33 +360,25 @@ var provisionCmd = &cobra.Command{
 		status.Println(DatabaseAdminName+" selected: ", databaseAdmin)
 
 		if usingDB, dbPassword := !strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
-			provisionConfig.Set(DatabasePasswordName, randname.GenerateWithPrefix("MSFT+Buffalo-", 20))
+			newPass := randname.GenerateWithPrefix("MSFT+Buffalo-", 20)
+			provisionConfig.Set(DatabasePasswordName, newPass)
 			status.Println("generated database password")
+			var envMap map[string]string
+			const envFileLoc = "./.env"
+			if envMap, err = godotenv.Read(envFileLoc); err != nil {
+				envMap = make(map[string]string, 1)
+			}
+			envMap[DatabasePasswordEnvVar] = newPass
+			if err := godotenv.Write(envMap, envFileLoc); err == nil {
+				status.Printf("wrote database password to %q", envFileLoc)
+			} else {
+				errLog.Printf("unable to write database password to %q", envFileLoc)
+			}
 		} else if usingDB {
 			status.Println("using provided password")
 		}
 
 		status.Println(ImageName+" selected: ", image)
-
-		groups := resources.NewGroupsClient(subscriptionID)
-		groups.Authorizer = auth
-		groups.AddToUserAgent(userAgent)
-
-		// Assert the presence of the specified Resource Group
-		rgName := provisionConfig.GetString(ResoureGroupName)
-		created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
-		if err != nil {
-			errLog.Printf("unable to fetch or create resource group %s: %v\n", rgName, err)
-			return
-		}
-		if created {
-			status.Println("created resource group: ", rgName)
-		} else {
-			status.Println("found resource group: ", rgName)
-		}
-		status.Println("site name selected: ", siteName)
-
-		pLink := portalLink(subscriptionID, rgName)
 
 		// Provision the necessary assets.
 
@@ -353,6 +388,10 @@ var provisionCmd = &cobra.Command{
 		deployParams.Parameters["imageName"] = DeploymentParameter{image}
 		deployParams.Parameters["databaseAdministratorLogin"] = DeploymentParameter{databaseAdmin}
 		deployParams.Parameters["databaseAdministratorLoginPassword"] = DeploymentParameter{provisionConfig.GetString(DatabasePasswordName)}
+		deployParams.Parameters["dockerRegistryAccess"] = DeploymentParameter{provisionConfig.GetString(DockerRegistryAccessName)}
+		deployParams.Parameters["dockerRegistryServerURL"] = DeploymentParameter{provisionConfig.GetString(DockerRegistryURLName)}
+		deployParams.Parameters["dockerRegistryServerUsername"] = DeploymentParameter{provisionConfig.GetString(DockerRegistryUsernameName)}
+		deployParams.Parameters["dockerRegistryServerPassword"] = DeploymentParameter{provisionConfig.GetString(DockerRegistryPasswordName)}
 
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
@@ -369,6 +408,27 @@ var provisionCmd = &cobra.Command{
 		} else {
 			go func(errOut chan<- error) {
 				defer close(errOut)
+				groups := resources.NewGroupsClient(subscriptionID)
+				groups.Authorizer = auth
+				groups.AddToUserAgent(userAgent)
+
+				// Assert the presence of the specified Resource Group
+				rgName := provisionConfig.GetString(ResoureGroupName)
+				created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
+				if err != nil {
+					errLog.Printf("unable to fetch or create resource group %s: %v\n", rgName, err)
+					errOut <- err
+					return
+				}
+				if created {
+					status.Println("created resource group: ", rgName)
+				} else {
+					status.Println("found resource group: ", rgName)
+				}
+				status.Println("site name selected: ", siteName)
+
+				pLink := portalLink(subscriptionID, rgName)
+
 				status.Println("beginning deployment")
 				if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err == nil {
 					fmt.Println("Check on your new Resource Group in the Azure Portal: ", pLink)
@@ -404,7 +464,7 @@ var provisionCmd = &cobra.Command{
 		if provisionConfig.GetBool(SkipParameterCacheName) {
 			close(parameterSaveResults)
 		} else {
-			go doCache(ctx, parameterSaveResults, stripDBPassword(deployParams), TemplateParametersDefault, "parameters")
+			go doCache(ctx, parameterSaveResults, stripPasswords(deployParams), TemplateParametersDefault, "parameters")
 		}
 
 		waitOnResults := func(ctx context.Context, results <-chan error) error {
@@ -480,7 +540,7 @@ var provisionCmd = &cobra.Command{
 	},
 }
 
-func stripDBPassword(original *DeploymentParameters) (copy *DeploymentParameters) {
+func stripPasswords(original *DeploymentParameters) (copy *DeploymentParameters) {
 	copy = NewDeploymentParameters()
 	copy.Parameters = make(map[string]DeploymentParameter, len(original.Parameters))
 	copy.ContentVersion = original.ContentVersion
@@ -490,6 +550,7 @@ func stripDBPassword(original *DeploymentParameters) (copy *DeploymentParameters
 		copy.Parameters[k] = v
 	}
 	delete(copy.Parameters, "databaseAdministratorLoginPassword")
+	delete(copy.Parameters, "dockerRegistryServerPassword")
 	return copy
 }
 
@@ -498,6 +559,7 @@ func cache(ctx context.Context, contents interface{}, outputName string) error {
 		defer handle.Close()
 
 		enc := json.NewEncoder(handle)
+		enc.SetIndent("", "  ")
 		err = enc.Encode(contents)
 		if err != nil {
 			return err
@@ -824,6 +886,22 @@ func setDefaults(conf *viper.Viper, params *DeploymentParameters) {
 	if dbAdmin, ok := params.Parameters["databaseAdministratorLogin"]; ok {
 		conf.SetDefault(DatabaseAdminName, dbAdmin.Value)
 	}
+
+	if dockerAccess, ok := params.Parameters["dockerRegistryAccess"]; ok {
+		conf.SetDefault(DockerRegistryAccessName, dockerAccess)
+	}
+
+	if dockerURL, ok := params.Parameters["dockerRegistryServerURL"]; ok {
+		conf.SetDefault(DockerRegistryURLName, dockerURL)
+	}
+
+	if dockerUsername, ok := params.Parameters["dockerRegistryServerUsername"]; ok {
+		conf.SetDefault(DockerRegistryUsernameName, dockerUsername)
+	}
+
+	if dockerPassword, ok := params.Parameters["dockerRegistryServerPassword"]; ok {
+		conf.SetDefault(DockerRegistryPasswordName, dockerPassword)
+	}
 }
 
 func loadFromParameterFile(paramFile string) (*DeploymentParameters, error) {
@@ -844,6 +922,7 @@ func loadFromParameterFile(paramFile string) (*DeploymentParameters, error) {
 }
 
 func init() {
+	const redactedMessage = "[redacted]"
 	var debugWriter io.Writer
 	if debug == "" {
 		debugWriter = ioutil.Discard
@@ -853,6 +932,8 @@ func init() {
 	debugLog = newFormattedLog(debugWriter, "debug")
 
 	azureCmd.AddCommand(provisionCmd)
+
+	godotenv.Load()
 
 	// Here you will define your flags and configuration settings.
 
@@ -870,6 +951,7 @@ func init() {
 	provisionConfig.BindEnv(TenantIDName, "AZURE_TENANT_ID", "AZ_TENANT_ID")
 	provisionConfig.BindEnv(EnvironmentName, "AZURE_ENVIRONMENT", "AZ_ENVIRONMENT")
 	provisionConfig.BindEnv(ProfileName, "GO_ENV")
+	provisionConfig.BindEnv(DatabasePasswordName, DatabasePasswordEnvVar, "BUFFALO_AZURE_DB_PASSWORD", "BUFFALO_AZ_DATABASE_PASSWORD", "BUFFALO_AZ_DB_PASSWORD")
 
 	provisionConfig.SetDefault(ProfileName, "development")
 
@@ -888,6 +970,7 @@ func init() {
 	provisionConfig.SetDefault(LocationName, LocationDefaultText)
 	provisionConfig.SetDefault(SiteName, siteDefaultMessage)
 	provisionConfig.SetDefault(TemplateParametersName, TemplateParametersDefault)
+	provisionConfig.SetDefault(DockerRegistryAccessName, DockerRegistryAccessDefault)
 
 	var sanitizedClientSecret string
 	if rawSecret := provisionConfig.GetString(ClientSecretName); rawSecret != "" {
@@ -895,7 +978,7 @@ func init() {
 		if len(rawSecret) > safeCharCount {
 			sanitizedClientSecret = fmt.Sprintf("...%s", rawSecret[len(rawSecret)-safeCharCount:])
 		} else {
-			sanitizedClientSecret = "[key hidden]"
+			sanitizedClientSecret = redactedMessage
 		}
 	}
 
@@ -912,6 +995,19 @@ func init() {
 		deployParams = NewDeploymentParameters()
 	}
 
+	dbPassText := provisionConfig.GetString(DatabasePasswordName)
+	if dbPassText == "" {
+		dbPassText = DatabasePasswordDefault
+		provisionConfig.SetDefault(DatabasePasswordName, DatabasePasswordDefault)
+	} else {
+		dbPassText = redactedMessage
+	}
+
+	dockerPassText := provisionConfig.GetString(DockerRegistryPasswordName)
+	if dockerPassText != "" {
+		dockerPassText = redactedMessage
+	}
+
 	provisionCmd.Flags().StringP(ImageName, ImageShorthand, provisionConfig.GetString(ImageName), imageUsage)
 	provisionCmd.Flags().StringP(TemplateName, TemplateShorthand, provisionConfig.GetString(TemplateName), templateUsage)
 	provisionCmd.Flags().StringP(SubscriptionName, SubscriptionShorthand, provisionConfig.GetString(SubscriptionName), subscriptionUsage)
@@ -926,12 +1022,16 @@ func init() {
 	provisionCmd.Flags().StringP(ResoureGroupName, ResourceGroupShorthand, provisionConfig.GetString(ResoureGroupName), resourceGroupUsage)
 	provisionCmd.Flags().StringP(SiteName, SiteShorthand, provisionConfig.GetString(SiteName), siteUsage)
 	provisionCmd.Flags().StringP(LocationName, LocationShorthand, provisionConfig.GetString(LocationName), locationUsage)
-	provisionCmd.Flags().Bool(SkipTemplateCacheName, false, skipTemplateCacheUsage)
+	provisionCmd.Flags().BoolP(SkipTemplateCacheName, SkipTemplateCacheShorthand, false, skipTemplateCacheUsage)
 	provisionCmd.Flags().BoolP(SkipParameterCacheName, SkipParameterCacheShorthand, false, skipParameterCacheUsage)
 	provisionCmd.Flags().BoolP(SkipDeploymentName, SkipDeploymentShorthand, false, skipDeploymentUsage)
-	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, DatabasePasswordDefault, databasePasswordUsage)
+	provisionCmd.Flags().StringP(DatabasePasswordName, DatabasePasswordShorthand, dbPassText, databasePasswordUsage)
 	provisionCmd.Flags().String(DatabaseAdminName, provisionConfig.GetString(DatabaseAdminName), databaseAdminUsage)
 	provisionCmd.Flags().StringP(TemplateParametersName, TemplateParametersShorthand, provisionConfig.GetString(TemplateParametersName), templateParametersUsage)
+	provisionCmd.Flags().String(DockerRegistryAccessName, provisionConfig.GetString(DockerRegistryAccessName), dockerRegistryAccessUsage)
+	provisionCmd.Flags().String(DockerRegistryURLName, provisionConfig.GetString(DockerRegistryURLName), dockerRegistryURLUsage)
+	provisionCmd.Flags().String(DockerRegistryUsernameName, provisionConfig.GetString(DockerRegistryUsernameName), dockerRegistryUsernameUsage)
+	provisionCmd.Flags().String(DockerRegistryPasswordName, dockerPassText, dockerRegistryPasswordUsage)
 
 	provisionConfig.BindPFlags(provisionCmd.Flags())
 
