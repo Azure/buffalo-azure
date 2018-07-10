@@ -70,7 +70,7 @@ func NewImportBagFromFile(filepath string) (*ImportBag, error) {
 func (ib *ImportBag) AddImport(pkgPath PackagePath) PackageSpecifier {
 	spec, err := FindSpecifier(pkgPath)
 	if err != nil {
-		spec = "unknown"
+		spec = PackageSpecifier(path.Base(string(pkgPath)))
 	}
 	specLen := len(spec)
 	suffix := uint(1)
