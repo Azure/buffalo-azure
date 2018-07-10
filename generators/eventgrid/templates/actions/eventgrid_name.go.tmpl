@@ -1,22 +1,18 @@
 package actions
 
 import (
-	"encoding/json"
-	"errors"
-	"net/http"
-
-	"github.com/Azure/buffalo-azure/sdk/eventgrid"
-	"github.com/gobuffalo/buffalo"
+{{ range $i := .imports }}	{{$i}}
+{{ end }}
 )
 
 // My{{$.name.Camel}}Subscriber gathers responds to all Requests sent to a particular endpoint.
 type {{$.name.Camel}}Subscriber struct {
-	eventgrid.Subscriber
+	eg.Subscriber
 }
 
 // New{{$.name.Camel}}Subscriber instantiates {{$.name.Camel}}Subscriber for use in a `buffalo.App`.
-func New{{$.name.Camel}}Subscriber(parent eventgrid.Subscriber) (created *{{$.name.Camel}}Subscriber) {
-	dispatcher := eventgrid.NewTypeDispatchSubscriber(parent)
+func New{{$.name.Camel}}Subscriber(parent eg.Subscriber) (created *{{$.name.Camel}}Subscriber) {
+	dispatcher := eg.NewTypeDispatchSubscriber(parent)
 
 	created = &{{$.name.Camel}}Subscriber{
 		Subscriber: dispatcher,
@@ -25,15 +21,15 @@ func New{{$.name.Camel}}Subscriber(parent eventgrid.Subscriber) (created *{{$.na
 {{ range $t := .types}}
 	dispatcher.Bind("{{$t.Identifier}}", created.Receive{{$t.Name.Camel}})
 {{end}}
-	dispatcher.Bind(eventgrid.EventTypeWildcard, created.ReceiveDefault)
+	dispatcher.Bind(eg.EventTypeWildcard, created.ReceiveDefault)
 
 	return
 }
 
 {{ range $t := .types }}
 // Receive{{$t.Name.Camel}} will respond to an `eventgrid.Event` carrying a serialized `{{$t.Name.Camel}}` as its payload.
-func (s *{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context, e eventgrid.Event) error {
-	var payload {{$t.PackageSpecifier}}.{{$t.Name.Camel}}
+func (s *{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context, e eg.Event) error {
+	var payload {{$t.PkgSpec}}.{{$t.Name.Camel}}
 	if err := json.Unmarshal(e.Data, &payload); err != nil {
 		return c.Error(http.StatusBadRequest, errors.New("unable to unmarshal request data"))
 	}
@@ -44,6 +40,6 @@ func (s *{{$.name.Camel}}Subscriber) Receive{{$t.Name.Camel}}(c buffalo.Context,
 {{end}}
 
 // ReceiveDefault will respond to an `eventgrid.Event` carrying any EventType as its payload.
-func (s *{{$.name.Camel}}Subscriber) ReceiveDefault(c buffalo.Context, e eventgrid.Event) error {
+func (s *{{$.name.Camel}}Subscriber) ReceiveDefault(c buffalo.Context, e eg.Event) error {
 	return c.Error(http.StatusInternalServerError, errors.New("not implemented"))
 }

@@ -11,6 +11,8 @@ import (
 	"github.com/gobuffalo/buffalo/meta"
 	"github.com/gobuffalo/makr"
 	"github.com/markbates/inflect"
+
+	"github.com/Azure/buffalo-azure/generators/common"
 )
 
 //go:generate go run ./builder/builder.go -o ./static_templates.go ./templates
@@ -26,15 +28,24 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 	type TypeMapping struct {
 		Identifier string
 		inflect.Name
-		PackageSpecifier string
+		PkgPath string
+		PkgSpec common.PackageSpecifier
 	}
 	flatTypes := make([]TypeMapping, 0, len(types))
 
+	ib := common.NewImportBag()
+	ib.AddImport("encoding/json")
+	ib.AddImport("errors")
+	ib.AddImport("net/http")
+	ib.AddImportWithSpecifier("github.com/Azure/buffalo-azure/sdk/eventgrid", "eg")
+	ib.AddImport("github.com/gobuffalo/buffalo")
+
 	for i, n := range types {
 		flatTypes = append(flatTypes, TypeMapping{
-			Identifier:       i,
-			PackageSpecifier: path.Base(n.PkgPath()),
-			Name:             inflect.Name(n.Name()),
+			Identifier: i,
+			PkgPath:    n.PkgPath(),
+			PkgSpec:    ib.AddImport(common.PackagePath(n.PkgPath())),
+			Name:       inflect.Name(n.Name()),
 		})
 	}
 
@@ -60,6 +71,7 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 	d := make(makr.Data)
 	d["name"] = iName
 	d["types"] = flatTypes
+	d["imports"] = ib.List()
 
 	return g.Run(app.Root, d)
 }
