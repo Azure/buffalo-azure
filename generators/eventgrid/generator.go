@@ -2,16 +2,10 @@ package eventgrid
 
 import (
 	"fmt"
-	"go/ast"
-	"go/importer"
-	"go/parser"
-	"go/token"
-	"go/types"
 	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 
 	"github.com/gobuffalo/buffalo/generators"
 	"github.com/gobuffalo/buffalo/meta"
@@ -80,40 +74,4 @@ func (eg *Generator) Run(app meta.App, name string, types map[string]reflect.Typ
 	d["imports"] = ib.List()
 
 	return g.Run(app.Root, d)
-}
-
-func existingImports(filepath string) (retval map[string]string, err error) {
-	fs := token.NewFileSet()
-	f, err := parser.ParseFile(fs, filepath, nil, parser.ImportsOnly)
-	if err != nil {
-		return
-	}
-
-	retval = make(map[string]string, len(f.Imports))
-	for _, imp := range f.Imports {
-		pkgPath := strings.Trim(imp.Path.Value, `"`)
-
-		if imp.Name == nil {
-			impFinder := importer.Default()
-			var pkg *types.Package
-
-			// This downcasting protects this code in the case that it is being called from a compiler
-			// other than the official Google Go compiler.
-			if cast, ok := impFinder.(types.ImporterFrom); ok {
-				pkg, err = cast.ImportFrom(pkgPath, "", 0)
-				if err != nil {
-					return
-				}
-				imp.Name = &ast.Ident{Name: pkg.Name()}
-			} else {
-				pkg, err = impFinder.Import(pkgPath)
-				if err != nil {
-					return
-				}
-				imp.Name = &ast.Ident{Name: pkg.Name()}
-			}
-		}
-		retval[imp.Name.Name] = pkgPath
-	}
-	return
 }
