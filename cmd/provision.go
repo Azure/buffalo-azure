@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -44,6 +43,7 @@ import (
 	"github.com/gobuffalo/pop"
 	"github.com/joho/godotenv"
 	"github.com/marstr/randname"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -290,8 +290,9 @@ const (
 
 // These constants define a parameter which allows the password to be set for Docker authentication.
 const (
-	DockerRegistryPasswordName  = "docker-registry-password"
-	dockerRegistryPasswordUsage = "The user password to allow access to a private docker registry."
+	DockerRegistryPasswordName   = "docker-registry-password"
+	dockerRegistryPasswordUsage  = "The user password to allow access to a private docker registry."
+	DockerRegistryPasswordEnvVar = "BUFFALO_AZURE_DOCKER_PASSWORD"
 )
 
 // DockerAccess is an enum that contains either "private" or "public"
@@ -311,9 +312,7 @@ const (
 	dockerRegistryAccessUsage   = "Specifies whether the Docker registry targeted is " + DockerAccessPublic + " or " + DockerAccessPrivate
 )
 
-var status *log.Logger
-var errLog = newFormattedLog(os.Stderr, "error")
-var debugLog *log.Logger
+var log = logrus.New()
 
 var debug string
 
@@ -325,9 +324,6 @@ var provisionCmd = &cobra.Command{
 	Use:     "provision",
 	Short:   "Create the infrastructure necessary to run a buffalo app on Azure.",
 	Run: func(cmd *cobra.Command, args []string) {
-		debugLog.Print("debugging enabled")
-		debugLog.Printf("User Agent built as: %q", userAgent)
-
 		// Authenticate and setup clients
 		subscriptionID := provisionConfig.GetString(SubscriptionName)
 		clientID := provisionConfig.GetString(ClientIDName)
@@ -348,37 +344,42 @@ var provisionCmd = &cobra.Command{
 		if !provisionConfig.GetBool(SkipDeploymentName) {
 			auth, err = getAuthorizer(ctx, subscriptionID, clientID, clientSecret, provisionConfig.GetString(TenantIDName))
 			if err != nil {
-				errLog.Print("unable to authenticate: ", err)
+				log.Error("unable to authenticate: ", err)
 				return
 			}
 		}
-		status.Print(TenantIDName+" selected: ", provisionConfig.GetString(TenantIDName))
-		status.Print(SubscriptionName+" selected: ", subscriptionID)
-		status.Println(TemplateName+" selected: ", templateLocation)
-		status.Println(DatabaseTypeName+" selected: ", databaseType)
-		status.Println(DatabaseNameName+" selected: ", databaseName)
-		status.Println(DatabaseAdminName+" selected: ", databaseAdmin)
+
+		log.Debug(TenantIDName+" selected: ", provisionConfig.GetString(TenantIDName))
+		log.Debug(SubscriptionName+" selected: ", subscriptionID)
+		log.Debug(TemplateName+" selected: ", templateLocation)
+		log.Debug(DatabaseTypeName+" selected: ", databaseType)
+		log.Debug(DatabaseNameName+" selected: ", databaseName)
+		log.Debug(DatabaseAdminName+" selected: ", databaseAdmin)
 
 		if usingDB, dbPassword := !strings.EqualFold(provisionConfig.GetString(DatabaseTypeName), "none"), provisionConfig.GetString(DatabasePasswordName); usingDB && dbPassword == DatabasePasswordDefault {
 			newPass := randname.GenerateWithPrefix("MSFT+Buffalo-", 20)
 			provisionConfig.Set(DatabasePasswordName, newPass)
-			status.Println("generated database password")
-			var envMap map[string]string
-			const envFileLoc = "./.env"
-			if envMap, err = godotenv.Read(envFileLoc); err != nil {
-				envMap = make(map[string]string, 1)
-			}
-			envMap[DatabasePasswordEnvVar] = newPass
-			if err := godotenv.Write(envMap, envFileLoc); err == nil {
-				status.Printf("wrote database password to %q", envFileLoc)
-			} else {
-				errLog.Printf("unable to write database password to %q", envFileLoc)
-			}
+			log.Debug("generated database password")
 		} else if usingDB {
-			status.Println("using provided password")
+			log.Debug("using provided password")
 		}
 
-		status.Println(ImageName+" selected: ", image)
+		var envMap map[string]string
+		const envFileLoc = "./.env"
+		if envMap, err = godotenv.Read(envFileLoc); err != nil {
+			envMap = make(map[string]string, 1)
+		}
+
+		envMap[DatabasePasswordEnvVar] = provisionConfig.GetString(DatabasePasswordName)
+		envMap[DockerRegistryPasswordEnvVar] = provisionConfig.GetString(DockerRegistryPasswordName)
+
+		if err := godotenv.Write(envMap, envFileLoc); err == nil {
+			log.Debugf("wrote passwords to %q", envFileLoc)
+		} else {
+			log.Errorf("unable to passwords to %q", envFileLoc)
+		}
+
+		log.Debug(ImageName+" selected: ", image)
 
 		// Provision the necessary assets.
 
@@ -395,7 +396,7 @@ var provisionCmd = &cobra.Command{
 
 		template, err := getDeploymentTemplate(ctx, templateLocation)
 		if err != nil {
-			errLog.Print("unable to fetch template: ", err)
+			log.Error("unable to fetch template: ", err)
 			return
 		}
 
@@ -416,42 +417,41 @@ var provisionCmd = &cobra.Command{
 				rgName := provisionConfig.GetString(ResoureGroupName)
 				created, err := insertResourceGroup(ctx, groups, rgName, provisionConfig.GetString(LocationName))
 				if err != nil {
-					errLog.Printf("unable to fetch or create resource group %s: %v\n", rgName, err)
+					log.Errorf("unable to fetch or create resource group %s: %v\n", rgName, err)
 					errOut <- err
 					return
 				}
 				if created {
-					status.Println("created resource group: ", rgName)
+					log.Info("created resource group: ", rgName)
 				} else {
-					status.Println("found resource group: ", rgName)
+					log.Info("found resource group: ", rgName)
 				}
-				status.Println("site name selected: ", siteName)
+				log.Debug("site name selected: ", siteName)
 
 				pLink := portalLink(subscriptionID, rgName)
 
-				status.Println("beginning deployment")
+				log.Info("beginning deployment")
 				if err := doDeployment(ctx, auth, subscriptionID, rgName, template); err == nil {
-					fmt.Println("Check on your new Resource Group in the Azure Portal: ", pLink)
-					fmt.Printf("Your site will be available shortly at: https://%s.azurewebsites.net\n", siteName)
+					log.Infof("Check on your new Resource Group in the Azure Portal: %s\nYour site will be available shortly at: https://%s.azurewebsites.net\n", pLink, siteName)
 				} else {
-					errLog.Printf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", pLink, err)
+					log.Warnf("unable to poll for completion progress, your assets may or may not have finished provisioning.\nCheck on their status in the portal: %s\nError: %v\n", pLink, err)
 					errOut <- err
 					return
 				}
-				status.Print("finished deployment")
+				log.Info("finished deployment")
 			}(deploymentResults)
 		}
 
 		doCache := func(ctx context.Context, errOut chan<- error, contents interface{}, location, flavor string) {
 			defer close(errOut)
-			status.Printf("caching %s", flavor)
+			log.Info("caching ", flavor)
 			err := cache(ctx, contents, location)
 			if err != nil {
-				errLog.Printf("unable to cache file %s because: %v", location, err)
+				log.Errorf("unable to cache file %s because: %v", location, err)
 				errOut <- err
 				return
 			}
-			status.Printf("%s cached", flavor)
+			log.Debugf("%s cached", flavor)
 		}
 
 		templateSaveResults, parameterSaveResults := make(chan error), make(chan error)
@@ -494,11 +494,31 @@ var provisionCmd = &cobra.Command{
 			return errors.New("--client-id and --client-secret must be specified together or not at all")
 		}
 
-		statusWriter := ioutil.Discard
-		if provisionConfig.GetBool(VerboseName) {
-			statusWriter = os.Stdout
+		if rootConfig.GetBool(VerboseName) {
+			rootConfig.Set(logOutputLevelName, logOutputLevelDebug)
 		}
-		status = newFormattedLog(statusWriter, "information")
+
+		if rawLevel := rootConfig.GetString(logOutputLevelName); rawLevel != "" {
+			var level logrus.Level
+			switch rawLevel {
+			case logOutputLevelDebug:
+				level = logrus.DebugLevel
+			case logOutputLevelInfo:
+				level = logrus.InfoLevel
+			case logOutputLevelWarn:
+				level = logrus.WarnLevel
+			case logOutputLevelError:
+				level = logrus.ErrorLevel
+			case logOutputLevelFatal:
+				level = logrus.FatalLevel
+			case logOutputLevelPanic:
+				level = logrus.PanicLevel
+			default:
+				return fmt.Errorf("unrecognized "+logOutputLevelName+": %s", rawLevel)
+			}
+
+			log.SetLevel(level)
+		}
 
 		if provisionConfig.GetString(TemplateName) == TemplateDefault {
 			provisionConfig.Set(SkipTemplateCacheName, true)
@@ -609,7 +629,6 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 	const commonTenant = "common"
 
 	if tenantID == "" {
-		debugLog.Print("tenant unset, using common tenant")
 		tenantID = commonTenant
 	}
 
@@ -661,7 +680,7 @@ func getAuthorizer(ctx context.Context, subscriptionID, clientID, clientSecret, 
 	if err != nil {
 		return nil, err
 	}
-	status.Println("service principal token created for client: ", clientID)
+	log.WithFields(logrus.Fields{"client": clientID}).Debug("service principal token created")
 	return autorest.NewBearerAuthorizer(auth), nil
 }
 
@@ -695,7 +714,6 @@ func doDeployment(ctx context.Context, authorizer autorest.Authorizer, subscript
 
 func getDeploymentTemplate(ctx context.Context, raw string) (*resources.DeploymentProperties, error) {
 	if isSupportedLink(raw) {
-		debugLog.Print("identified external link")
 		buf := bytes.NewBuffer([]byte{})
 
 		err := downloadTemplate(ctx, buf, raw)
@@ -703,14 +721,11 @@ func getDeploymentTemplate(ctx context.Context, raw string) (*resources.Deployme
 			return nil, err
 		}
 
-		debugLog.Printf("template %d bytes long", buf.Len())
-
 		return &resources.DeploymentProperties{
 			Template: json.RawMessage(buf.Bytes()),
 		}, nil
 	}
 
-	debugLog.Print("identified local file")
 	handle, err := os.Open(raw)
 	if err != nil {
 		return nil, err
@@ -749,7 +764,7 @@ func downloadTemplate(ctx context.Context, dest io.Writer, src string) error {
 	const maxRetries = 3
 	var download func(context.Context, io.Writer, string, uint) error
 
-	status.Print("downloading template from: ", src)
+	log.Debug("downloading template: ", src)
 
 	download = func(ctx context.Context, dest io.Writer, src string, depth uint) (err error) {
 		if depth > maxRedirects {
@@ -776,14 +791,16 @@ func downloadTemplate(ctx context.Context, dest io.Writer, src string) error {
 				return
 			}
 
+			statusCodeLogger := log.WithFields(logrus.Fields{"status-code": resp.StatusCode})
+
 			if _, ok := redirectCodes[resp.StatusCode]; ok {
 				loc := resp.Header.Get("Location")
-				debugLog.Printf("HTTP Status Code %d encountered, following redirection to %s", resp.StatusCode, loc)
+				statusCodeLogger.WithFields(logrus.Fields{"location": loc}).Debug("following HTTP redirect")
 				return download(ctx, dest, loc, depth+1)
 			}
 
 			if _, ok := temporaryFailureCodes[resp.StatusCode]; ok {
-				debugLog.Printf("HTTP Status Code %d encountered, retrying", resp.StatusCode)
+				statusCodeLogger.Debug("recoverable HTTP failure, retrying.")
 				continue
 			}
 
@@ -807,7 +824,7 @@ func getTenant(ctx context.Context, common *adal.Token, subscription string) (st
 
 	subscriptionClient := subscriptions.NewClient()
 
-	status.Println("using authorization to infer tenant")
+	log.WithFields(logrus.Fields{"subscription": subscription}).Info("using authorization to infer tenant")
 
 	for tenantList, err = tenants.ListComplete(ctx); err == nil && tenantList.NotDone(); err = tenantList.Next() {
 		var subscriptionList subscriptions.ListResultIterator
@@ -858,14 +875,6 @@ func isSupportedLink(subject string) bool {
 	return ok
 }
 
-func newFormattedLog(output io.Writer, identifier string) *log.Logger {
-	const identLen = 4
-	for len(identifier) < identLen {
-		identifier = identifier + " "
-	}
-	return log.New(output, fmt.Sprintf("[%s] ", strings.ToUpper(identifier)[:identLen]), log.Ldate|log.Ltime)
-}
-
 func setDefaults(conf *viper.Viper, params *DeploymentParameters) {
 	if name, ok := params.Parameters["name"]; ok {
 		conf.SetDefault(SiteName, name.Value)
@@ -888,19 +897,15 @@ func setDefaults(conf *viper.Viper, params *DeploymentParameters) {
 	}
 
 	if dockerAccess, ok := params.Parameters["dockerRegistryAccess"]; ok {
-		conf.SetDefault(DockerRegistryAccessName, dockerAccess)
+		conf.SetDefault(DockerRegistryAccessName, dockerAccess.Value)
 	}
 
 	if dockerURL, ok := params.Parameters["dockerRegistryServerURL"]; ok {
-		conf.SetDefault(DockerRegistryURLName, dockerURL)
+		conf.SetDefault(DockerRegistryURLName, dockerURL.Value)
 	}
 
 	if dockerUsername, ok := params.Parameters["dockerRegistryServerUsername"]; ok {
-		conf.SetDefault(DockerRegistryUsernameName, dockerUsername)
-	}
-
-	if dockerPassword, ok := params.Parameters["dockerRegistryServerPassword"]; ok {
-		conf.SetDefault(DockerRegistryPasswordName, dockerPassword)
+		conf.SetDefault(DockerRegistryUsernameName, dockerUsername.Value)
 	}
 }
 
@@ -923,14 +928,6 @@ func loadFromParameterFile(paramFile string) (*DeploymentParameters, error) {
 
 func init() {
 	const redactedMessage = "[redacted]"
-	var debugWriter io.Writer
-	if debug == "" {
-		debugWriter = ioutil.Discard
-	} else {
-		debugWriter = os.Stderr
-	}
-	debugLog = newFormattedLog(debugWriter, "debug")
-
 	azureCmd.AddCommand(provisionCmd)
 
 	godotenv.Load()
@@ -952,6 +949,7 @@ func init() {
 	provisionConfig.BindEnv(EnvironmentName, "AZURE_ENVIRONMENT", "AZ_ENVIRONMENT")
 	provisionConfig.BindEnv(ProfileName, "GO_ENV")
 	provisionConfig.BindEnv(DatabasePasswordName, DatabasePasswordEnvVar, "BUFFALO_AZURE_DB_PASSWORD", "BUFFALO_AZ_DATABASE_PASSWORD", "BUFFALO_AZ_DB_PASSWORD")
+	provisionConfig.BindEnv(DockerRegistryPasswordName, DockerRegistryPasswordEnvVar)
 
 	provisionConfig.SetDefault(ProfileName, "development")
 
@@ -960,7 +958,7 @@ func init() {
 		provisionConfig.SetDefault(DatabaseNameName, dbname)
 	} else {
 		provisionConfig.SetDefault(DatabaseTypeName, "none")
-		debugLog.Print("unable to parse buffalo app for db dialect: ", err)
+		log.WithFields(logrus.Fields{"error": err}).Warn("unable to parse buffalo application for db dialect.")
 	}
 
 	provisionConfig.SetDefault(DatabaseAdminName, DatabaseAdminDefault)

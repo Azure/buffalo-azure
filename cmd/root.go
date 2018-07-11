@@ -29,7 +29,25 @@ import (
 	"github.com/spf13/viper"
 )
 
+type logOutputLevel string
+
+const (
+	logOutputLevelDebug = "debug"
+	logOutputLevelInfo  = "info"
+	logOutputLevelWarn  = "warn"
+	logOutputLevelError = "error"
+	logOutputLevelFatal = "fatal"
+	logOutputLevelPanic = "panic"
+
+	logOutputLevelName      = "output-level"
+	logOutputLevelShorthand = "o"
+	logOutputLevelDefault   = logOutputLevelInfo
+	logOutputLevelUsage     = "The amount of output you'd like to see. Options include: " + logOutputLevelDebug + ", " + logOutputLevelInfo + ", " + logOutputLevelWarn + ", " + logOutputLevelError + ", " + logOutputLevelFatal + ", and " + logOutputLevelPanic
+)
+
 var cfgFile string
+
+var rootConfig = viper.New()
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -61,6 +79,11 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	// rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	rootCmd.PersistentFlags().StringP(logOutputLevelName, logOutputLevelShorthand, logOutputLevelDefault, logOutputLevelUsage)
+	rootCmd.PersistentFlags().BoolP(VerboseName, VerboseShortname, false, verboseUsage)
+
+	rootConfig.BindPFlags(rootCmd.PersistentFlags())
 }
 
 // initConfig reads in config file and ENV variables if set.

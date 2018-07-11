@@ -15,8 +15,8 @@
     "services/resources/mgmt/2017-05-10/resources",
     "version"
   ]
-  revision = "7971189ecf5a584b9211f2527737f94bb979644e"
-  version = "v17.4.0"
+  revision = "fbe7db0e3f9793ba3e5704efbab84f51436c136e"
+  version = "v18.0.0"
 
 [[projects]]
   name = "github.com/Azure/go-autorest"
@@ -135,8 +135,8 @@
     "fix",
     "nulls"
   ]
-  revision = "66130dbcd030ea900e35e45e03dd1a59577d2e99"
-  version = "v4.5.12"
+  revision = "9936c00d4230dae87d8ac5cf73149d9de7b0e899"
+  version = "v4.6.1"
 
 [[projects]]
   name = "github.com/gobuffalo/tags"
@@ -501,7 +501,7 @@
     "html",
     "html/atom"
   ]
-  revision = "87b3feba568e144938625fc5d80ec92566c1a8fe"
+  revision = "039a4258aec0ad3c79b905677cceeab13b296a77"
 
 [[projects]]
   branch = "master"
@@ -516,7 +516,7 @@
     "unix",
     "windows"
   ]
-  revision = "7138fd3d9dc8335c567ca206f4333fb75eb05d56"
+  revision = "1b2967e3c290b7c545b3db0deeda16e9be4f98a2"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -546,6 +546,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0ca276e99bfba052cf9d07bc5e408c494fce5cc8b82106feec5601f108cd5b4d"
+  inputs-digest = "c517cccb1716027c9f086f3030e185782fab475b57f279e72b3a7d00b24848b6"
   solver-name = "gps-cdcl"
   solver-version = 1

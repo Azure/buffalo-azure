@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -23,7 +22,7 @@ func init() {
 		environment = azure.PublicCloud
 	}
 
-	status = log.New(ioutil.Discard, "", 0)
+	log.SetOutput(ioutil.Discard)
 }
 
 func Test_getAuthorizer(t *testing.T) {
