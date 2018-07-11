@@ -22,7 +22,7 @@ func init() {
 		environment = azure.PublicCloud
 	}
 
-	log.SetOutput(ioutil.Discard)
+	log.Out = ioutil.Discard
 }
 
 func Test_getAuthorizer(t *testing.T) {
