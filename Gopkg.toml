@@ -49,6 +49,14 @@
   name = "github.com/joho/godotenv"
   version = "^1.2.0"
 
+[[constraint]]
+  name = "github.com/Azure/azure-sdk-for-go"
+  version = "^18.0.0"
+
+[[constraint]]
+  name = "github.com/sirupsen/logrus"
+  version = "^1.0.5"
+
 [prune]
   go-tests = true
   unused-packages = true
