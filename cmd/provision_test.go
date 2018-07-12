@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Azure/go-autorest/autorest/azure"
+	"github.com/spf13/viper"
 )
 
 func init() {
@@ -194,5 +196,105 @@ func Test_getDeploymentTemplate_localFiles(t *testing.T) {
 				t.Fail()
 			}
 		})
+	}
+}
+
+func TestSetDefaults(t *testing.T) {
+	buffaloARMNames := map[string]string{
+		SiteName:                   "name",
+		DatabaseTypeName:           "database",
+		DatabaseNameName:           "databaseName",
+		ImageName:                  "imageName",
+		DatabaseAdminName:          "databaseAdministratorLogin",
+		DatabasePasswordName:       "databaseAdministratorLoginPassword",
+		DockerRegistryAccessName:   "dockerRegistryAccess",
+		DockerRegistryURLName:      "dockerRegistryServerURL",
+		DockerRegistryUsernameName: "dockerRegistryServerUsername",
+		DockerRegistryPasswordName: "dockerRegistryServerPassword",
+	}
+
+	expected := map[string]string{
+		SiteName:                   "name1",
+		DatabaseTypeName:           "postgres",
+		DatabaseNameName:           "dbName1",
+		ImageName:                  "marstr/quickstart:unittests",
+		DatabaseAdminName:          "dbadmin1",
+		DockerRegistryAccessName:   "private",
+		DockerRegistryURLName:      "https://marstr.azurecr.io",
+		DockerRegistryUsernameName: "dockeradmin1",
+	}
+
+	if expected[DockerRegistryAccessName] == DockerRegistryAccessDefault {
+		t.Error("this test shouldn't use the actual default registry access")
+	}
+
+	// We want to discourage people from checking in secrets, so ensure that we do
+	// not respect them as defaults.
+	notExpected := map[string]struct{}{
+		DatabasePasswordName:       struct{}{},
+		DockerRegistryPasswordName: struct{}{},
+	}
+
+	params := NewDeploymentParameters()
+	for k, v := range expected {
+		params.Parameters[buffaloARMNames[k]] = DeploymentParameter{v}
+	}
+
+	subject := viper.New()
+	setDefaults(subject, params)
+
+	for k, v := range expected {
+		if got := subject.Get(k); got == nil {
+			t.Logf("missing key %q", k)
+			t.Fail()
+		} else if cast, ok := got.(string); !ok {
+			t.Logf("Key %q is of type %s when a string was expected", k, reflect.TypeOf(got).Name())
+			t.Fail()
+		} else if cast != v {
+			t.Logf("\n\tgot:  %q\n\twant: %q", cast, v)
+			t.Fail()
+		}
+	}
+
+	for k := range notExpected {
+		if got := subject.Get(k); got != nil {
+			t.Logf("didn't expect to find parameter %q after settingDefaults", k)
+			t.Fail()
+		}
+	}
+}
+
+func TestLoadFromParameterFile(t *testing.T) {
+	subject, err := loadFromParameterFile("./testdata/parameters1.json")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	expected := map[string]string{
+		"database":                   "postgresql",
+		"databaseAdministratorLogin": "buffaloAdmin",
+		"databaseName":               "buffalo30_development",
+		"imageName":                  "marstr/quickstart:latest",
+		"name":                       "buffalo-app-uqqq1nfno1",
+	}
+
+	for k, v := range subject.Parameters {
+		if cast, ok := v.Value.(string); !ok {
+			t.Logf("parameter %q has type %q instead of expected type \"string\"", k, reflect.TypeOf(v.Value).Name())
+			t.Fail()
+		} else if want, ok := expected[k]; !ok {
+			t.Logf("found an unexpected parameter: %q", k)
+			t.Fail()
+		} else if cast != want {
+			t.Logf("For parameter %q:\n\tgot:  %q\n\twant: %q", k, cast, want)
+			t.Fail()
+		}
+		delete(expected, k)
+	}
+
+	for k := range expected {
+		t.Logf("didn't find expected parameter: %q", k)
+		t.Fail()
 	}
 }

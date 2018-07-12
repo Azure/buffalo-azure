@@ -911,9 +911,8 @@ func setDefaults(conf *viper.Viper, params *DeploymentParameters) {
 
 func loadFromParameterFile(paramFile string) (*DeploymentParameters, error) {
 	loaded := NewDeploymentParameters()
-	if _, err := os.Stat(TemplateParametersDefault); err == nil {
-		provisionConfig.SetDefault(TemplateParametersName, TemplateParametersDefault)
-		if handle, err := os.Open(provisionConfig.GetString(TemplateParametersName)); err == nil {
+	if _, err := os.Stat(paramFile); err == nil {
+		if handle, err := os.Open(paramFile); err == nil {
 			dec := json.NewDecoder(handle)
 			err = dec.Decode(loaded)
 			if err != nil {
