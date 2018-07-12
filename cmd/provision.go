@@ -1012,7 +1012,6 @@ func init() {
 	provisionCmd.Flags().String(ClientIDName, provisionConfig.GetString(ClientIDName), clientIDUsage)
 	provisionCmd.Flags().String(ClientSecretName, sanitizedClientSecret, clientSecretUsage)
 	provisionCmd.Flags().Bool(DeviceAuthName, false, deviceAuthUsage)
-	provisionCmd.Flags().BoolP(VerboseName, VerboseShortname, false, verboseUsage)
 	provisionCmd.Flags().String(TenantIDName, provisionConfig.GetString(TenantIDName), tenantUsage)
 	provisionCmd.Flags().StringP(EnvironmentName, EnvironmentShorthand, provisionConfig.GetString(EnvironmentName), environmentUsage)
 	provisionCmd.Flags().String(DatabaseNameName, provisionConfig.GetString(DatabaseNameName), databaseNameUsage)
