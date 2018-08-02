@@ -32,6 +32,10 @@ func TestServiceBus_StartStop_noQueues(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	if skipIfMissingConfig(t, ServiceBusConnection) {
+		return
+	}
+
 	subject, err := NewServiceBus(config.GetString(ServiceBusConnection), 0)
 	if err != nil {
 		t.Error(err)
