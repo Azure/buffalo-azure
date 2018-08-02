@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	servicebus "github.com/Azure/azure-service-bus-go"
 	"github.com/gobuffalo/buffalo/worker"
 	"github.com/joho/godotenv"
 	"github.com/satori/uuid"
@@ -33,7 +32,7 @@ func TestServiceBus_StartStop_noQueues(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	subject, err := NewServiceBus()
+	subject, err := NewServiceBus(config.GetString(ServiceBusConnection), 0)
 	if err != nil {
 		t.Error(err)
 		return
@@ -62,29 +61,14 @@ func TestServiceBus_SendReceive(t *testing.T) {
 		return
 	}
 
-	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(config.GetString(ServiceBusConnection)))
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
 	queueName := uuid.NewV1().String()
-	mgmtClient := ns.NewQueueManager()
 
-	if _, err := mgmtClient.Put(ctx, queueName); err != nil {
-		t.Error(err)
-		return
-	}
-	defer mgmtClient.Delete(context.Background(), queueName)
-
-	queue, err := ns.NewQueue(ctx, queueName)
+	subject, err := NewServiceBus(config.GetString(ServiceBusConnection), 1)
 	if err != nil {
 		t.Error(err)
 		return
 	}
-
-	subject, err := NewServiceBus(queue)
-	if err != nil {
+	if err := subject.UpsertQueue(ctx, queueName); err != nil {
 		t.Error(err)
 		return
 	}

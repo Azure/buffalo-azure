@@ -7,25 +7,37 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-amqp-common-go/uuid"
 	servicebus "github.com/Azure/azure-service-bus-go"
 	bufwork "github.com/gobuffalo/buffalo/worker"
 )
 
-type queuePool map[string]*servicebus.Queue
+type queuePool struct {
+	sync.RWMutex
+	ns      *servicebus.Namespace
+	clients map[string]*servicebus.Queue
+	handles map[string]*servicebus.ListenerHandle
+	cancel  context.CancelFunc
+	ctx     context.Context
+	session uuid.UUID
+}
+
+// ServiceBusQueueAutoDeleteOnIdleTime is the amount of time that a Service Bus Queue
+// will stick around when there are no longer any messages in it.
+const ServiceBusQueueAutoDeleteOnIdleTime = 20 * time.Minute
 
 type (
 	// ServiceBusReceiver is able to listen to a ServiceBus Queue and do Buffalo Jobs.
 	ServiceBusReceiver struct {
-		pool     queuePool
+		pool     *queuePool
 		handlers map[string]bufwork.Handler
-		handles  map[string]*servicebus.ListenerHandle
-		ctx      context.Context
 		mut      sync.RWMutex
 	}
 
 	// ServiceBusPublisher is able to write Buffalo Jobs to ServiceBus Queue.
 	ServiceBusPublisher struct {
-		pool queuePool
+		pool           *queuePool
+		PublishTimeout time.Duration
 	}
 
 	// ServiceBus is a compound type, which fulfills the entire interface defined by the type
@@ -39,12 +51,22 @@ type (
 )
 
 // NewServiceBusReceiver is a constructor for the type `ServiceBusReceiver`.
-func NewServiceBusReceiver(queues ...*servicebus.Queue) *ServiceBusReceiver {
-	return &ServiceBusReceiver{
-		pool:     newQueuePool(queues),
-		handlers: make(map[string]bufwork.Handler),
-		handles:  make(map[string]*servicebus.ListenerHandle, len(queues)),
+func NewServiceBusReceiver(connstr string, capacity int) (*ServiceBusReceiver, error) {
+	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(connstr))
+	if err != nil {
+		return nil, err
 	}
+
+	pool := newQueuePool(ns, capacity)
+
+	retval := new(ServiceBusReceiver)
+	initializeServiceBusReceiver(retval, ns, pool)
+	return retval, nil
+}
+
+func initializeServiceBusReceiver(subject *ServiceBusReceiver, ns *servicebus.Namespace, pool *queuePool) {
+	subject.pool = pool
+	subject.handlers = make(map[string]bufwork.Handler)
 }
 
 // Register binds a function that should be called when a Job calling for a particular value of Handler is
@@ -57,6 +79,14 @@ func (sbr *ServiceBusReceiver) Register(name string, processor bufwork.Handler) 
 	return nil
 }
 
+// UpsertQueue connects to a Service Bus Queue, and adds caches the client for future usage.
+func (sbr *ServiceBusReceiver) UpsertQueue(ctx context.Context, names ...string) error {
+	sbr.mut.Lock()
+	defer sbr.mut.Unlock()
+
+	return sbr.pool.UpsertQueue(ctx, names...)
+}
+
 // Start begins listening to a ServiceBus Queue in order to handle github.com/gobuffalo/buffalo/worker.Jobs
 // that come accross the wire as Service Bus Messages.
 //
@@ -65,24 +95,7 @@ func (sbr *ServiceBusReceiver) Start(ctx context.Context) (err error) {
 	sbr.mut.RLock()
 	defer sbr.mut.RUnlock()
 
-	sbr.ctx = ctx
-	for name, client := range sbr.pool {
-		var handle *servicebus.ListenerHandle
-		handle, err = client.Receive(ctx, sbr.dispatch)
-		if err != nil {
-			break
-		}
-		sbr.handles[name] = handle
-	}
-
-	// Having `Start` partially complete could cause connection leaks, or have it be hard to reason about
-	// the existing state. For that reason, if even one Queue listener fails to start listening, the clause
-	// below will stop any of the queues that had successfully started listening.
-	if err != nil {
-		sbr.stop()
-	}
-
-	return
+	return sbr.pool.Receive(ctx, sbr.dispatch)
 }
 
 // Stop makes this instance of a ServiceBus listener cease listening for Jobs.
@@ -90,17 +103,10 @@ func (sbr *ServiceBusReceiver) Stop() error {
 	sbr.mut.Lock()
 	defer sbr.mut.Unlock()
 
-	return sbr.stop()
-}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-// stop closes all open queue Receive operations, and resets the context from when it was started. It
-// takes no lock, and therefor is only suitable for internal consumption.
-func (sbr *ServiceBusReceiver) stop() error {
-	for _, handle := range sbr.handles {
-		handle.Close(sbr.ctx)
-	}
-	sbr.ctx = nil
-	return nil
+	return sbr.pool.stop(ctx)
 }
 
 func (sbr *ServiceBusReceiver) dispatch(ctx context.Context, message *servicebus.Message) servicebus.DispositionAction {
@@ -128,20 +134,36 @@ func (sbr *ServiceBusReceiver) dispatch(ctx context.Context, message *servicebus
 }
 
 // NewServiceBusPublisher is a constructor for the type `ServiceBusPublisher`.
-func NewServiceBusPublisher(queues ...*servicebus.Queue) *ServiceBusPublisher {
-	return &ServiceBusPublisher{
-		pool: newQueuePool(queues),
+func NewServiceBusPublisher(connStr string, capacity int) (*ServiceBusPublisher, error) {
+	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(connStr))
+	if err != nil {
+		return nil, err
 	}
+
+	retval := new(ServiceBusPublisher)
+	initializeServiceBusPublisher(retval, ns, newQueuePool(ns, capacity))
+	return retval, nil
+}
+
+func initializeServiceBusPublisher(subject *ServiceBusPublisher, ns *servicebus.Namespace, pool *queuePool) {
+	subject.pool = pool
+	subject.PublishTimeout = 5 * time.Minute
 }
 
 // Perform schedules a `Job` to be run as soon as possible.
 func (sbp *ServiceBusPublisher) Perform(job bufwork.Job) (err error) {
-	return sbp.publish(job, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), sbp.PublishTimeout)
+	defer cancel()
+
+	return sbp.publish(ctx, job, nil)
 }
 
 // PerformAt schedules a `Job` to be performed at a particular time.
 func (sbp *ServiceBusPublisher) PerformAt(job bufwork.Job, at time.Time) error {
-	return sbp.publish(job, &servicebus.SystemProperties{
+	ctx, cancel := context.WithTimeout(context.Background(), sbp.PublishTimeout)
+	defer cancel()
+
+	return sbp.publish(ctx, job, &servicebus.SystemProperties{
 		ScheduledEnqueueTime: &at,
 	})
 }
@@ -151,10 +173,13 @@ func (sbp *ServiceBusPublisher) PerformIn(job bufwork.Job, in time.Duration) err
 	return sbp.PerformAt(job, time.Now().Add(in))
 }
 
-func (sbp *ServiceBusPublisher) publish(job bufwork.Job, messageProperties *servicebus.SystemProperties) error {
-	client, ok := sbp.pool[job.Queue]
+func (sbp *ServiceBusPublisher) publish(ctx context.Context, job bufwork.Job, messageProperties *servicebus.SystemProperties) error {
+	sbp.pool.RLock()
+	defer sbp.pool.RUnlock()
+
+	client, ok := sbp.pool.clients[job.Queue]
 	if !ok {
-		return fmt.Errorf("unknown queue %q", job.Queue)
+		assertQueue(ctx, sbp.pool.ns, job.Queue)
 	}
 
 	marshaled, err := json.Marshal(job)
@@ -165,33 +190,155 @@ func (sbp *ServiceBusPublisher) publish(job bufwork.Job, messageProperties *serv
 	message := servicebus.NewMessage(marshaled)
 	message.SystemProperties = messageProperties
 
-	return client.Send(context.Background(), message)
+	return client.Send(ctx, message)
 }
 
 // NewServiceBus is a constructor for the compound type ServiceBus. It instantiates a ServiceBusPublisher and ServiceBusReceiver
 // that share connection resources.
-func NewServiceBus(queues ...*servicebus.Queue) (retval *ServiceBus, _ error) {
-	pool := newQueuePool(queues)
+func NewServiceBus(connStr string, capacity int) (retval *ServiceBus, _ error) {
+	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(connStr))
+	if err != nil {
+		return nil, err
+	}
+
+	pool := newQueuePool(ns, capacity)
 
 	retval = new(ServiceBus)
 
-	retval.ServiceBusPublisher = ServiceBusPublisher{
-		pool: pool,
+	initializeServiceBusPublisher(&retval.ServiceBusPublisher, ns, pool)
+	initializeServiceBusReceiver(&retval.ServiceBusReceiver, ns, pool)
+	return
+}
+
+func newQueuePool(ns *servicebus.Namespace, capacity int) (retval *queuePool) {
+	retval = new(queuePool)
+	retval.clients = make(map[string]*servicebus.Queue, capacity)
+	retval.ns = ns
+	return
+}
+
+func (qp *queuePool) UpsertQueue(ctx context.Context, names ...string) error {
+	qp.Lock()
+	defer qp.Unlock()
+
+	for i := range names {
+		if _, ok := qp.clients[names[i]]; ok {
+			continue
+		}
+
+		client, err := assertQueue(ctx, qp.ns, names[i])
+		if err != nil {
+			return err
+		}
+		qp.clients[names[i]] = client
+	}
+	return nil
+}
+
+// Receive starts all registered clients receiving. This method blocks only until each client has begun listening.
+func (qp *queuePool) Receive(ctx context.Context, handler servicebus.Handler) error {
+	qp.RLock()
+	defer qp.RUnlock()
+
+	return qp.receiveAll(ctx, handler)
+}
+
+func (qp *queuePool) receiveAll(ctx context.Context, handler servicebus.Handler) (err error) {
+	// Already Receiving? Move along
+	if qp.handles != nil {
+		return nil
 	}
 
-	retval.ServiceBusReceiver = ServiceBusReceiver{
-		pool:     pool,
-		handlers: make(map[string]bufwork.Handler),
-		handles:  make(map[string]*servicebus.ListenerHandle, len(queues)),
+	// Create a new unique identifier for a Receive session.
+	qp.session, err = uuid.NewV4()
+	if err != nil {
+		return
+	}
+
+	qp.handles = make(map[string]*servicebus.ListenerHandle, len(qp.clients))
+	qp.ctx, qp.cancel = context.WithCancel(context.Background())
+
+	for k := range qp.clients {
+		if err = qp.receive(ctx, k, handler); err != nil {
+			qp.stop(ctx)
+			return
+		}
 	}
 	return
 }
 
-func newQueuePool(queues []*servicebus.Queue) (retval queuePool) {
-	retval = make(queuePool, len(queues))
-
-	for i := range queues {
-		retval[queues[i].Name] = queues[i]
+func (qp *queuePool) receive(ctx context.Context, name string, handler servicebus.Handler) error {
+	client, ok := qp.clients[name]
+	if !ok {
+		return fmt.Errorf("queue %q not in pool", name)
 	}
-	return
+
+	handle, err := client.Receive(ctx, handler)
+	if err != nil {
+		return err
+	}
+
+	go func(handle *servicebus.ListenerHandle, sessionID uuid.UUID) {
+		for {
+			select {
+			case <-qp.ctx.Done():
+				return
+			case <-handle.Done():
+				qp.Lock()
+				defer qp.Unlock()
+
+				// Has stop() been called since this was started? If so, we shouldn't keep
+				// trying to connect.
+				if qp.session != sessionID {
+					return
+				}
+
+				client, err := qp.ns.NewQueue(qp.ctx, name)
+				if err != nil {
+					continue
+				}
+				handle, err = client.Receive(qp.ctx, handler)
+			}
+		}
+	}(handle, qp.session)
+
+	return nil
+}
+
+func (qp *queuePool) stop(ctx context.Context) error {
+	qp.Lock()
+	defer qp.Unlock()
+
+	encountered := uint16(0)
+	for queue := range qp.handles {
+		if err := qp.handles[queue].Close(ctx); err != nil {
+			encountered++
+		}
+	}
+	qp.cancel()
+
+	qp.handles = nil
+	qp.ctx = context.Background()
+	qp.cancel = func() {}
+	qp.session = uuid.UUID{}
+
+	if encountered > 0 {
+		return fmt.Errorf("encountered errors while closing %d queue clients, memory may have been leaked", encountered)
+	}
+	return nil
+}
+
+func assertQueue(ctx context.Context, ns *servicebus.Namespace, name string) (*servicebus.Queue, error) {
+	qm := ns.NewQueueManager()
+	qe, err := qm.Get(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if qe == nil {
+		_, err := qm.Put(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ns.NewQueue(ctx, name)
 }
