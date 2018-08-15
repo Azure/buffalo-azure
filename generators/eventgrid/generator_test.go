@@ -1,5 +1,3 @@
-// +build !short
-
 package eventgrid
 
 import (
@@ -19,6 +17,11 @@ import (
 )
 
 func TestGenerator_Run(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+		return
+	}
+
 	const bufCmd, depCmd = "buffalo", "dep"
 	requiredTools := []string{bufCmd, depCmd, "go", "node"}
 
