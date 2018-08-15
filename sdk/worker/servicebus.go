@@ -26,6 +26,10 @@ type queuePool struct {
 // will stick around when there are no longer any messages in it.
 const ServiceBusQueueAutoDeleteOnIdleTime = 20 * time.Minute
 
+// DefaultQueue is the name of the queue that will be published to/listened from when no Queue is provided to the
+// ServiceBus and ServiceBusReceiver constructors.
+const DefaultQueue = "buffalo-worker"
+
 type (
 	// ServiceBusReceiver is able to listen to a ServiceBus Queue and do Buffalo Jobs.
 	ServiceBusReceiver struct {
@@ -51,13 +55,13 @@ type (
 )
 
 // NewServiceBusReceiver is a constructor for the type `ServiceBusReceiver`.
-func NewServiceBusReceiver(connstr string, capacity int) (*ServiceBusReceiver, error) {
+func NewServiceBusReceiver(connstr string, queues ...string) (*ServiceBusReceiver, error) {
 	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(connstr))
 	if err != nil {
 		return nil, err
 	}
 
-	pool := newQueuePool(ns, capacity)
+	pool := newQueuePool(ns, queues...)
 
 	retval := new(ServiceBusReceiver)
 	initializeServiceBusReceiver(retval, ns, pool)
@@ -77,14 +81,6 @@ func (sbr *ServiceBusReceiver) Register(name string, processor bufwork.Handler) 
 
 	sbr.handlers[name] = processor
 	return nil
-}
-
-// UpsertQueue connects to a Service Bus Queue, and adds caches the client for future usage.
-func (sbr *ServiceBusReceiver) UpsertQueue(ctx context.Context, names ...string) error {
-	sbr.mut.Lock()
-	defer sbr.mut.Unlock()
-
-	return sbr.pool.UpsertQueue(ctx, names...)
 }
 
 // Start begins listening to a ServiceBus Queue in order to handle github.com/gobuffalo/buffalo/worker.Jobs
@@ -124,24 +120,22 @@ func (sbr *ServiceBusReceiver) dispatch(ctx context.Context, message *servicebus
 	sbr.mut.RUnlock()
 
 	if ok {
-		handler(j.Args)
-	} else {
-		// A message that can't be handled by this ServiceBusReceiver, try it again somewhere else.
-		return message.Abandon()
+		if err := handler(j.Args); err == nil {
+			return message.Complete()
+		}
 	}
-
-	return message.Complete()
+	return message.Abandon()
 }
 
 // NewServiceBusPublisher is a constructor for the type `ServiceBusPublisher`.
-func NewServiceBusPublisher(connStr string, capacity int) (*ServiceBusPublisher, error) {
+func NewServiceBusPublisher(connStr string, queues ...string) (*ServiceBusPublisher, error) {
 	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(connStr))
 	if err != nil {
 		return nil, err
 	}
 
 	retval := new(ServiceBusPublisher)
-	initializeServiceBusPublisher(retval, ns, newQueuePool(ns, capacity))
+	initializeServiceBusPublisher(retval, ns, newQueuePool(ns, queues...))
 	return retval, nil
 }
 
@@ -203,13 +197,13 @@ func (sbp *ServiceBusPublisher) publish(ctx context.Context, job bufwork.Job, me
 
 // NewServiceBus is a constructor for the compound type ServiceBus. It instantiates a ServiceBusPublisher and ServiceBusReceiver
 // that share connection resources.
-func NewServiceBus(connStr string, capacity int) (retval *ServiceBus, _ error) {
+func NewServiceBus(connStr string, queues ...string) (retval *ServiceBus, _ error) {
 	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(connStr))
 	if err != nil {
 		return nil, err
 	}
 
-	pool := newQueuePool(ns, capacity)
+	pool := newQueuePool(ns, queues...)
 
 	retval = new(ServiceBus)
 
@@ -218,10 +212,14 @@ func NewServiceBus(connStr string, capacity int) (retval *ServiceBus, _ error) {
 	return
 }
 
-func newQueuePool(ns *servicebus.Namespace, capacity int) (retval *queuePool) {
+func newQueuePool(ns *servicebus.Namespace, queues ...string) (retval *queuePool) {
 	retval = new(queuePool)
-	retval.clients = make(map[string]*servicebus.Queue, capacity)
+	if len(queues) == 0 {
+		queues = []string{DefaultQueue}
+	}
+	retval.clients = make(map[string]*servicebus.Queue, len(queues))
 	retval.ns = ns
+	retval.UpsertQueue(context.TODO(), queues...)
 	return
 }
 

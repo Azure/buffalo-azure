@@ -36,7 +36,7 @@ func TestServiceBus_StartStop_noQueues(t *testing.T) {
 		return
 	}
 
-	subject, err := NewServiceBus(config.GetString(ServiceBusConnection), 0)
+	subject, err := NewServiceBus(config.GetString(ServiceBusConnection))
 	if err != nil {
 		t.Error(err)
 		return
@@ -67,12 +67,8 @@ func TestServiceBus_SendReceive(t *testing.T) {
 
 	queueName := uuid.NewV1().String()
 
-	subject, err := NewServiceBus(config.GetString(ServiceBusConnection), 1)
+	subject, err := NewServiceBus(config.GetString(ServiceBusConnection), queueName)
 	if err != nil {
-		t.Error(err)
-		return
-	}
-	if err := subject.UpsertQueue(ctx, queueName); err != nil {
 		t.Error(err)
 		return
 	}
