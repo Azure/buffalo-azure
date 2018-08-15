@@ -168,6 +168,10 @@ func (sbp *ServiceBusPublisher) PerformIn(job bufwork.Job, in time.Duration) err
 }
 
 func (sbp *ServiceBusPublisher) publish(ctx context.Context, job bufwork.Job, messageProperties *servicebus.SystemProperties) error {
+	if job.Queue == "" {
+		job.Queue = DefaultQueue
+	}
+
 	sbp.pool.Lock()
 	client, ok := sbp.pool.clients[job.Queue]
 	if !ok {
