@@ -174,14 +174,22 @@ func (sbp *ServiceBusPublisher) PerformIn(job bufwork.Job, in time.Duration) err
 }
 
 func (sbp *ServiceBusPublisher) publish(ctx context.Context, job bufwork.Job, messageProperties *servicebus.SystemProperties) error {
-	sbp.pool.RLock()
-	defer sbp.pool.RUnlock()
-
+	sbp.pool.Lock()
 	client, ok := sbp.pool.clients[job.Queue]
 	if !ok {
-		assertQueue(ctx, sbp.pool.ns, job.Queue)
-	}
+		var err error
+		client, err = assertQueue(ctx, sbp.pool.ns, job.Queue)
+		if err != nil {
+			sbp.pool.Unlock()
+			return err
+		}
+		sbp.pool.clients[job.Queue] = client
 
+	}
+	sbp.pool.Unlock()
+
+	sbp.pool.RLock()
+	defer sbp.pool.RUnlock()
 	marshaled, err := json.Marshal(job)
 	if err != nil {
 		return err
