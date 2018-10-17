@@ -1,7 +1,6 @@
-module github.com/azure/buffalo-azure/sdk
+module github.com/Azure/buffalo-azure/sdk
 
 require (
-	github.com/Azure/buffalo-azure v0.1.6
 	github.com/cockroachdb/apd v1.1.0 // indirect
 	github.com/cockroachdb/cockroach-go v0.0.0-20181001143604-e0a95dfd547c // indirect
 	github.com/gobuffalo/buffalo v0.13.0

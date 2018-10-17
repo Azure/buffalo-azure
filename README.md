@@ -48,8 +48,10 @@ This is an extension, so before you install Buffalo-Azure, make sure you've alre
 
 ##### go get
 
-The way to get started is to use `go get`. This project support Go modules when using Go 1.11 and above.
-For more information see [Go modules wiki](https://github.com/golang/go/wiki/Modules).
+Use `go get` to acquire and install from source. Versions of the project after `v0.2.0` use 
+Go modules exclusively, which means you'll need Go 1.11 or later.
+
+For more information on modules, see the [Go modules wiki](https://github.com/golang/go/wiki/Modules).
 
 ``` bash
 go get -u github.com/Azure/buffalo-azure
