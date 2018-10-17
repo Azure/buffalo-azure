@@ -1,8 +1,7 @@
 language: go
 
 go:
-  - "1.9"
-  - 1.10.x
+  - 1.11.x
   - master
 
 matrix:
@@ -11,9 +10,7 @@ matrix:
     - go: master
 
 install:
-  - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
   - go get -u golang.org/x/lint/golint
-  - dep ensure
   
 script:
   - go generate ./...
