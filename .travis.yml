@@ -1,8 +1,7 @@
 language: go
 
 go:
-  - "1.9"
-  - 1.10.x
+  - 1.11.x
   - master
 
 matrix:
@@ -11,15 +10,16 @@ matrix:
     - go: master
 
 install:
-  - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
   - go get -u golang.org/x/lint/golint
-  - dep ensure
   
 script:
   - go generate ./...
   - test -z "$(git diff ./generators/eventgrid/static_templates.go | tee /dev/stderr)"
-  - go build ./...
+  - go build all
   - go test -race ./...
   - test -z "$(go fmt ./... | tee /dev/stderr)"
   - test -z "$(golint $(go list ./...) | tee /dev/stderr)"
   - go vet ./...
+
+env:
+  - GO111MODULE=on

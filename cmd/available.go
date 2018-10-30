@@ -24,7 +24,8 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/gobuffalo/buffalo/plugins"
+	"github.com/gobuffalo/buffalo-plugins/plugins"
+
 	"github.com/spf13/cobra"
 )
 
